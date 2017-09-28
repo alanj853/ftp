@@ -8,7 +8,8 @@
 
 defmodule RanchFtpProtocol do
 
-    @timeout 120000
+    @timeout 600000
+    require Logger
     
     def start_link(listener_pid, socket, transport, opts) do
         pid = spawn_link(__MODULE__, :init, [listener_pid, socket, transport])
@@ -17,14 +18,14 @@ defmodule RanchFtpProtocol do
 
     def init(listener_pid, socket, transport) do
         :ranch.accept_ack(listener_pid)
-        IO.puts("Got a connection!")
+        Logger.debug("Got a connection!")
         :ranch_tcp.send(socket, "200 Welcome to FTP Server\r\n")
         {:ok, data} = :ranch_tcp.recv(socket, 0 , @timeout)
         auth(socket, transport, data)
     end
 
     def auth(socket, transport, data) do
-        IO.puts("User authenicated!\n")
+        Logger.debug("User authenicated!\n")
         :ranch_tcp.send(socket, "230 Auth OK \r\n")
         FtpSession.start(:connected)
         loop_socket(socket, "")
@@ -45,43 +46,33 @@ defmodule RanchFtpProtocol do
                     {:incomplete, command} ->
                         loop_socket(socket, data)
                 end
+                Logger.debug "This is what I'm sending back: #{response}"
                 :ranch_tcp.send(socket, response)
                 loop_socket(socket, buffer2)
             {:error, reason} ->
-                IO.puts("Got an error #{inspect reason}")
+                Logger.debug("Got an error #{inspect reason}")
         end
     end
 
     defp parse_command(data) do
-        IO.puts("Got command #{inspect data}")
-        case String.contains?(data, "LIST\r\n") do
-            true -> 
+        Logger.debug("Got command #{inspect data}")
+        cond do
+            String.contains?(data, "LIST ") == true ->
+                "LIST " <> dir_name = data |> String.trim()
+                %{connection_status: status, current_directory: cd, response: response} = FtpSession.list_files dir_name
+                {:valid, response}
+            String.contains?(data, "LIST") == true -> 
                 %{connection_status: status, current_directory: cd, response: response} = FtpSession.list_files
                 {:valid, response}
-            false ->
-                {:valid, "valid command"}
-        end
-        case String.contains?(data, "LIST ") do
-            true -> 
-                #path = String.spl
-                %{connection_status: status, current_directory: cd, response: response} = FtpSession.list_files
-                {:valid, response}
-            false ->
-                {:valid, "valid command"}
-        end
-        case String.contains?(data, "PWD") do
-            true -> 
+            String.contains?(data, "PWD") == true -> 
                 %{connection_status: status, current_directory: cd, response: response} = FtpSession.current_directory
                 {:valid, response}
-            false ->
-                {:valid, "valid command"}
-        end
-        case String.contains?(data, "CWD") do
-            true ->
+            String.contains?(data, "CWD") == true ->
                 "CWD " <> dir_name = data |> String.trim()
                 %{connection_status: status, current_directory: cd, response: response} = FtpSession.change_directory dir_name
                 {:valid, response}
-            false ->
+            true ->
+                Logger.debug "This is data: #{inspect data}"
                 {:valid, "valid command"}
         end
     end

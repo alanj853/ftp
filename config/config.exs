@@ -28,3 +28,10 @@ use Mix.Config
 # here (which is why it is important to import them last).
 #
 #     import_config "#{Mix.env}.exs"
+
+
+config :ftp, 
+    username: "user"
+    password: "password1"
+    ro_dirs: ["/home/alan/Development"],
+    rw_dirs: ["/home/alan/Development/ftp"]

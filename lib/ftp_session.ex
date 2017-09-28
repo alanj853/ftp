@@ -48,19 +48,28 @@ defmodule FtpSession do
       "" -> cd
       _ -> path 
     end
-    Logger.info "Listing files in path '#{path}'"
-    new_response = case File.ls(path) do
-      {:ok, files} ->
-        sorted_files = Enum.sort(files)
-        for  file  <-  sorted_files  do
+
+    new_response = case allowed_to_view(path) do
+      true ->
+        Logger.info "Listing files in path '#{path}'"
+        case File.ls(path) do
+          {:ok, files} ->
+            sorted_files = Enum.sort(files)
+            for  file  <-  sorted_files  do
+            end
+            files_as_string = Enum.join(sorted_files, " ")
+            Logger.info "Files Found: #{files_as_string}"
+            files_as_string
+          {:error, reason} ->
+            Logger.info "ls command failed. Reason: #{inspect reason}"
+            to_string(reason)
         end
-        files_as_string = Enum.join(sorted_files, " ")
-        Logger.info "Files Found: #{files_as_string}"
-        files_as_string
-      {:error, reason} ->
-        Logger.info "ls command failed. Reason: #{inspect reason}"
-        to_string(reason)
-    end
+      false ->
+        Logger.info "You don't have permission to view this file/folder."
+        "You don't have permission to view this file/folder."
+      end
+
+
     new_state=%{connection_status: status, current_directory: cd, response: new_response}
     {:reply, state, new_state}
   end
@@ -85,6 +94,13 @@ defmodule FtpSession do
     Logger.debug "Current Directory: #{path}"
     new_state = %{connection_status: status, current_directory: new_path, response: new_path}
     {:reply, state, new_state}
+  end
+
+  defp allowed_to_view(path) do
+    ro_dirs = Application.get_env(:ftp, :ro_dirs)
+    rw_dirs = Application.get_env(:ftp, :rw_dirs)
+    
+    true
   end
 
 
