@@ -31,7 +31,7 @@ use Mix.Config
 
 
 config :ftp, 
-    username: "user"
-    password: "password1"
+    username: "user",
+    password: "password1",
     ro_dirs: ["/home/alan/Development"],
     rw_dirs: ["/home/alan/Development/ftp"]

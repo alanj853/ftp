@@ -15,13 +15,17 @@ defmodule FtpSession do
   # }
 
   def start(status) do
-    initial_state = %{ connection_status: status, current_directory: "/", response: "" }
+    initial_state = %{ connection_status: status, current_directory: "/home", response: "" }
     GenServer.start_link(__MODULE__, initial_state, name: @server_name)
   end
 
   def init(state=%{connection_status: status, current_directory: cd, response: response}) do
     Logger.info "Session Started."
     {:ok, state}
+  end
+
+  def get_state() do
+    GenServer.call __MODULE__, :get_state
   end
 
   def list_files() do
@@ -38,6 +42,42 @@ defmodule FtpSession do
 
   def change_directory(path) do
     GenServer.call __MODULE__, {:change_directory, path}
+  end
+
+  def make_directory(path) do
+    GenServer.call __MODULE__, {:make_directory, path}
+  end
+  
+  def remove_directory(path) do
+    GenServer.call __MODULE__, {:remove_directory, path}
+  end
+
+  def remove_file(path) do
+    GenServer.call __MODULE__, {:remove_file, path}
+  end
+
+  def system_type() do
+    GenServer.call __MODULE__, :system_type
+  end
+
+  def feat() do
+    GenServer.call __MODULE__, :feat
+  end
+
+  def type() do
+    GenServer.call __MODULE__, :type
+  end
+
+  def pasv() do
+    GenServer.call __MODULE__, :pasv
+  end
+
+  def port() do
+    GenServer.call __MODULE__, :port
+  end
+
+  def handle_call(:get_state, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+    {:reply, state, state}
   end
 
   def handle_call({:list_files, path}, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
@@ -58,15 +98,16 @@ defmodule FtpSession do
             for  file  <-  sorted_files  do
             end
             files_as_string = Enum.join(sorted_files, " ")
-            Logger.info "Files Found: #{files_as_string}"
-            files_as_string
+            Logger.info "226 Files Found: #{files_as_string}\r\n"
+            "226 #{files_as_string}\r\n"
           {:error, reason} ->
-            Logger.info "ls command failed. Reason: #{inspect reason}"
+            Logger.info "550 ls command failed. Reason: #{inspect reason}\r\n"
             to_string(reason)
+            "550 ls command failed. Reason: #{inspect reason}\r\n"
         end
       false ->
         Logger.info "You don't have permission to view this file/folder."
-        "You don't have permission to view this file/folder."
+        "550 You don't have permission to view this file/folder.\r\n"
       end
 
 
@@ -76,23 +117,96 @@ defmodule FtpSession do
 
   
   def handle_call(:current_directory, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
-    Logger.debug "cd: #{inspect cd}"
-    new_response = cd
+    Logger.debug "257 cd: #{inspect cd}"
+    new_response = "257 \"#{cd}\"\r\n"
     new_state=%{connection_status: status, current_directory: cd, response: new_response}
     {:reply, state, new_state}
   end
 
   def handle_call({:change_directory, path}, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
-    new_path = cd
-    new_path = case File.dir?(path) do
+    {response, new_path} = case File.dir?(path) do
       true ->
-        path
+        Logger.debug "250 Current Directory: #{path}"
+        {"250 Current Directory: #{path}\r\n", path}
       false ->
-        Logger.debug "Current path '#{path}' does not exist."
-        cd
+        Logger.debug "550 Current path '#{path}' does not exist."
+        {"550 Current path '#{path}' does not exist\r\n", cd}
     end
-    Logger.debug "Current Directory: #{path}"
-    new_state = %{connection_status: status, current_directory: new_path, response: new_path}
+    new_state = %{connection_status: status, current_directory: new_path, response: response}
+    {:reply, state, new_state}
+  end
+
+  def handle_call({:make_directory, path}, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+    case File.mkdir_p(path) do
+      :ok ->
+        Logger.info "257 Directory #{path} created."
+        response = "257 Directory #{path} created\r\n"
+      {:error, reason} ->
+        Logger.info "550 Directory #{path} could not be created. Reason: #{inspect reason}"
+        response = "550 Directory #{path} could not be created. Reason: #{inspect reason}\r\n"
+    end
+    new_state=%{connection_status: status, current_directory: cd, response: response}
+    {:reply, state, new_state}
+  end
+
+  def handle_call({:remove_directory, path}, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+    case File.rmdir(path) do
+      :ok ->
+        Logger.info "200 Directory '#{path}' removed."
+        response = "200 Directory '#{path}' removed\r\n"
+      {:error, reason} ->
+        Logger.info "550 Error removing directory '#{path}'. Reason: #{inspect reason}"
+        response = "550 Error removing directory '#{path}'. Reason: #{inspect reason}\r\n"
+    end
+    new_state=%{connection_status: status, current_directory: cd, response: response}
+    {:reply, state, new_state}
+  end
+
+  def handle_call({:remove_file, path}, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+    case File.rm(path) do
+      :ok->
+        Logger.info "200 File '#{path}' removed."
+        response = "200 File '#{path}' removed\r\n"
+      {:error, reason} ->
+        Logger.info "550 Error removing file '#{path}'. Reason: #{inspect reason}"
+        response = "550 Error removing file '#{path}'. Reason: #{inspect reason}\r\n"
+    end
+    new_state=%{connection_status: status, current_directory: cd, response: response}
+    {:reply, state, new_state}
+  end
+
+  def handle_call(:system_type, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+    Logger.debug "215 UNIX Type: L8\r\n"
+    new_response = "215 UNIX Type: L8\r\n"
+    new_state=%{connection_status: status, current_directory: cd, response: new_response}
+    {:reply, state, new_state}
+  end
+
+  def handle_call(:feat, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+    Logger.debug "211 no-features\r\n"
+    new_response = "211 no-features\r\n"
+    new_state=%{connection_status: status, current_directory: cd, response: new_response}
+    {:reply, state, new_state}
+  end
+
+  def handle_call(:type, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+    Logger.debug "200 ASCII Non-print"
+    new_response = "200 ASCII Non-print\r\n"
+    new_state=%{connection_status: status, current_directory: cd, response: new_response}
+    {:reply, state, new_state}
+  end
+
+  def handle_call(:pasv, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+    Logger.debug "227 Entering Passive Mode"
+    new_response = "227 Entering Passive Mode\r\n"
+    new_state=%{connection_status: status, current_directory: cd, response: new_response}
+    {:reply, state, new_state}
+  end
+
+  def handle_call(:port, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+    Logger.debug "200 Okay"
+    new_response = "200 Okay\r\n"
+    new_state=%{connection_status: status, current_directory: cd, response: new_response}
     {:reply, state, new_state}
   end
 
