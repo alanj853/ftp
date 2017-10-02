@@ -15,7 +15,7 @@ defmodule FtpSession do
   # }
 
   def start(socket, status) do
-    initial_state = %{socket: socket, connection_status: status, current_directory: "/home", response: "", client_ip: nil, data_port: nil }
+    initial_state = %{socket: socket, connection_status: status, current_directory: "/home/alan/Development/ftp", response: "", client_ip: nil, data_port: nil }
     Logger.debug "Socket Status: #{inspect socket}"
     GenServer.start_link(__MODULE__, initial_state, name: @server_name)
   end
@@ -111,15 +111,10 @@ defmodule FtpSession do
             for  file  <-  sorted_files  do
             end
             files_as_string = Enum.join(sorted_files, " ")
-            
-            :ranch_tcp.send(socket, "150 Transferring Data...\r\n")
-            :ranch_tcp.sendfile(socket, "/home/user/Desktop/battery.component.ts", 0, 0, [])
-            :ranch_tcp.recv(socket, 0 , 60000)
-            :ranch_tcp.send(socket, "226 Transfer Complete\r\n")
             "226 Transfer Complete\r\n"
             
-            #Logger.info "226 Files Found: #{files_as_string}\r\n"
-            #"226 #{files_as_string}\r\n"
+            Logger.info "226 Files Found: #{files_as_string}\r\n"
+            "226 #{files_as_string}\r\n"
           {:error, reason} ->
             Logger.info "550 ls command failed. Reason: #{inspect reason}\r\n"
             to_string(reason)

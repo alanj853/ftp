@@ -94,19 +94,54 @@ defmodule RanchFtpProtocol do
                 "RETR " <> file = data |> String.trim()
                 current_state = FtpSession.get_state
                 Logger.debug "This is current_state #{inspect current_state}"
-                #FtpSession.list_files
-                :ranch_tcp.send(socket, "150 Transferring Data...\r\n")
-                #:ranch_tcp.connect()
                 %{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: client_ip, data_port: client_data_port} = FtpSession.get_state
-                client_ip = to_charlist(client_ip)
-                {:ok, data_socket} = :gen_tcp.connect(client_ip, client_data_port ,[:binary, packet: :line])
                 
-                #:ranch_tcp.connect("10.216.251.60", 154, :any)
-                #:ranch_tcp.send(data_socket, "hello world\r\n")
-                :ranch_tcp.sendfile(data_socket, file)
-                :ranch_tcp.close(data_socket)
-                new_state=%{socket: socket, connection_status: status, current_directory: cd, response: "226 Transfer Complete\r\n", client_ip: nil, data_port: nil}
+                full_file_path = Enum.join([cd, "/" ,file])
+                case File.exists?(full_file_path) do
+                    true -> 
+                        :ranch_tcp.send(socket, "150 Transferring Data...\r\n")
+                        client_ip = to_charlist(client_ip)
+                        {:ok, data_socket} = :gen_tcp.connect(client_ip, client_data_port ,[:binary, packet: :line])
+                        :ranch_tcp.sendfile(data_socket, full_file_path)
+                        :ranch_tcp.close(data_socket)
+                        response = "226 Transfer Complete\r\n"
+                    false ->
+                        response = "550 File does not exist. Not transferring.\r\n"
+                end
+                
+                new_state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: nil, data_port: nil}
                 #:ranch_tcp.send(socket, "226 Transfer Complete\r\n")
+                FtpSession.set_state(new_state)
+                :executed
+
+            String.contains?(data, "STOR") == true ->
+                "STOR " <> file = data |> String.trim()
+                current_state = FtpSession.get_state
+                Logger.debug "This is current_state #{inspect current_state}"
+                %{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: client_ip, data_port: client_data_port} = FtpSession.get_state
+                
+                full_file_path = Enum.join([cd, "/" ,file])
+                case File.exists?(full_file_path) do
+                    true -> 
+                        File.rm!(full_file_path)
+                    false ->
+                        :ok
+                end
+                
+                :ranch_tcp.send(socket, "150 Opening Data Socket for transfer...\r\n")
+                client_ip = to_charlist(client_ip)
+                {:ok, data_socket} = :gen_tcp.connect(client_ip, client_data_port ,[active: false, mode: :binary, packet: :raw])
+                :ranch_tcp.send(socket, "227 Entering Passive Mode\r\n")
+                {:ok, packet} = receive_file(data_socket)
+                Logger.debug("This is packet: #{inspect packet}")
+                a = byte_size(packet)
+                Logger.debug("This is size: #{inspect a}")
+                :ranch_tcp.close(data_socket)
+                :file.write_file(to_charlist(full_file_path), packet)
+                :ranch_tcp.send(socket, "226 Transfer Complete\r\n")
+                response = "200 Okay\r\n"
+
+                new_state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: nil, data_port: nil}
                 FtpSession.set_state(new_state)
                 :executed
             String.contains?(data, "PWD") == true -> 
@@ -181,6 +216,17 @@ defmodule RanchFtpProtocol do
         case (expected_password == password) do
             true -> 0
             false -> 1
+        end
+    end
+
+    defp receive_file(data_socket, packet \\ "") do
+        case :gen_tcp.recv(data_socket, 0) do
+            {:ok, new_packet} ->
+                new_packet = Enum.join([packet, new_packet])
+                receive_file(data_socket, new_packet)
+            {:error, reason} ->
+                Logger.error "reason: "
+                {:ok, packet}
         end
     end
 
