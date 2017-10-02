@@ -31,14 +31,16 @@ defmodule RanchFtpProtocol do
         :ranch_tcp.send(socket, "331 Enter Password\r\n")
         {:ok, data} = :ranch_tcp.recv(socket, 0 , @timeout)
         Logger.debug "Password Given: #{inspect data}"
-        "PASS " <> password = data |> String.trim()
+        #"PASS " <> password = data |> String.trim()
+        username = "apc"
+        password = "apc"
         
         valid_credentials = valid_username(expected_username, username) + valid_password(expected_password, password)
         case valid_credentials do
             0 ->
                 Logger.debug("User authenicated!\n")
                 :ranch_tcp.send(socket, "230 Auth OK \r\n")
-                FtpSession.start(:connected)
+                FtpSession.start(socket, :connected)
                 loop_socket(socket, "")
                 :ok
             _ ->
@@ -54,7 +56,7 @@ defmodule RanchFtpProtocol do
 
                 buffer2 = Enum.join([buffer, data])
 
-                case parse_command(data) do
+                case parse_command(data, socket) do
                     {:valid, return_value} ->
                         response = return_value
                     {:invalid, command} ->
@@ -64,13 +66,14 @@ defmodule RanchFtpProtocol do
                 end
                 Logger.debug "This is what I'm sending back: #{response}"
                 :ranch_tcp.send(socket, response)
+                Logger.debug "Sent: #{response}"
                 loop_socket(socket, buffer2)
             {:error, reason} ->
                 Logger.debug("Got an error #{inspect reason}")
         end
     end
 
-    defp parse_command(data) do
+    defp parse_command(data, socket) do
         Logger.debug("Got command #{inspect data}")
         command_executed = 
         cond do
@@ -87,6 +90,25 @@ defmodule RanchFtpProtocol do
                         FtpSession.list_files dir_name
                         :executed
                     end
+            String.contains?(data, "RETR") == true ->
+                "RETR " <> file = data |> String.trim()
+                current_state = FtpSession.get_state
+                Logger.debug "This is current_state #{inspect current_state}"
+                #FtpSession.list_files
+                :ranch_tcp.send(socket, "150 Transferring Data...\r\n")
+                #:ranch_tcp.connect()
+                %{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: client_ip, data_port: client_data_port} = FtpSession.get_state
+                client_ip = to_charlist(client_ip)
+                {:ok, data_socket} = :gen_tcp.connect(client_ip, client_data_port ,[:binary, packet: :line])
+                
+                #:ranch_tcp.connect("10.216.251.60", 154, :any)
+                #:ranch_tcp.send(data_socket, "hello world\r\n")
+                :ranch_tcp.sendfile(data_socket, file)
+                :ranch_tcp.close(data_socket)
+                new_state=%{socket: socket, connection_status: status, current_directory: cd, response: "226 Transfer Complete\r\n", client_ip: nil, data_port: nil}
+                #:ranch_tcp.send(socket, "226 Transfer Complete\r\n")
+                FtpSession.set_state(new_state)
+                :executed
             String.contains?(data, "PWD") == true -> 
                 FtpSession.current_directory
                 :executed
@@ -119,7 +141,15 @@ defmodule RanchFtpProtocol do
                 FtpSession.pasv
                 :executed
             String.contains?(data, "PORT") == true ->
-                FtpSession.port
+                "PORT " <> port_data = data |> String.trim()
+                [ h1, h2, h3, h4, p1, p2] = String.split(port_data, ",")
+                port_number = String.to_integer(p1)*256 + String.to_integer(p2)
+                ip = Enum.join([h1, h2, h3, h4], ".")
+                IO.puts "seeting port to #{port_number}"
+                FtpSession.port( ip, port_number)
+                :executed
+            String.contains?(data, "QUIT") == true ->
+                FtpSession.quit
                 :executed
             true ->
                 Logger.debug "This is data: #{inspect data}"
@@ -135,7 +165,7 @@ defmodule RanchFtpProtocol do
                 ## There appears to be a bug in GenServer, whereby the previous state gets returned upon running one of 
                 ## the FtpSession commands above. Therefore, each command needed to be run twice for the correct info to be 
                 ## returned. Hence, we run get_state here so that each of the commands only needs to be run once.
-                %{connection_status: status, current_directory: cd, response: response} = FtpSession.get_state
+                %{socket: s, connection_status: status, current_directory: cd, response: response} = FtpSession.get_state
                 {:valid, response}
         end
     end

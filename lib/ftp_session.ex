@@ -14,18 +14,23 @@ defmodule FtpSession do
   #   current_directory: "/",
   # }
 
-  def start(status) do
-    initial_state = %{ connection_status: status, current_directory: "/home", response: "" }
+  def start(socket, status) do
+    initial_state = %{socket: socket, connection_status: status, current_directory: "/home", response: "", client_ip: nil, data_port: nil }
+    Logger.debug "Socket Status: #{inspect socket}"
     GenServer.start_link(__MODULE__, initial_state, name: @server_name)
   end
 
-  def init(state=%{connection_status: status, current_directory: cd, response: response}) do
+  def init(state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
     Logger.info "Session Started."
     {:ok, state}
   end
 
   def get_state() do
     GenServer.call __MODULE__, :get_state
+  end
+
+  def set_state(state) do
+    GenServer.call __MODULE__, {:set_state, state}
   end
 
   def list_files() do
@@ -72,15 +77,23 @@ defmodule FtpSession do
     GenServer.call __MODULE__, :pasv
   end
 
-  def port() do
-    GenServer.call __MODULE__, :port
+  def port(new_ip, new_data_port) do
+    GenServer.call __MODULE__, {:port, new_ip, new_data_port}
   end
 
-  def handle_call(:get_state, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+  def quit() do
+    GenServer.call __MODULE__, :quit
+  end
+
+  def handle_call(:get_state, _from, state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
     {:reply, state, state}
   end
 
-  def handle_call({:list_files, path}, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+  def handle_call({:set_state, new_state}, _from, state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
+    {:reply, state, new_state}
+  end
+
+  def handle_call({:list_files, path}, _from, state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
     new_response = ""
     
     path = case path do
@@ -98,8 +111,15 @@ defmodule FtpSession do
             for  file  <-  sorted_files  do
             end
             files_as_string = Enum.join(sorted_files, " ")
-            Logger.info "226 Files Found: #{files_as_string}\r\n"
-            "226 #{files_as_string}\r\n"
+            
+            :ranch_tcp.send(socket, "150 Transferring Data...\r\n")
+            :ranch_tcp.sendfile(socket, "/home/user/Desktop/battery.component.ts", 0, 0, [])
+            :ranch_tcp.recv(socket, 0 , 60000)
+            :ranch_tcp.send(socket, "226 Transfer Complete\r\n")
+            "226 Transfer Complete\r\n"
+            
+            #Logger.info "226 Files Found: #{files_as_string}\r\n"
+            #"226 #{files_as_string}\r\n"
           {:error, reason} ->
             Logger.info "550 ls command failed. Reason: #{inspect reason}\r\n"
             to_string(reason)
@@ -111,19 +131,19 @@ defmodule FtpSession do
       end
 
 
-    new_state=%{connection_status: status, current_directory: cd, response: new_response}
+    new_state=%{socket: socket, connection_status: status, current_directory: cd, response: new_response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
 
   
-  def handle_call(:current_directory, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+  def handle_call(:current_directory, _from, state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
     Logger.debug "257 cd: #{inspect cd}"
     new_response = "257 \"#{cd}\"\r\n"
-    new_state=%{connection_status: status, current_directory: cd, response: new_response}
+    new_state=%{socket: socket, connection_status: status, current_directory: cd, response: new_response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
 
-  def handle_call({:change_directory, path}, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+  def handle_call({:change_directory, path}, _from, state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
     {response, new_path} = case File.dir?(path) do
       true ->
         Logger.debug "250 Current Directory: #{path}"
@@ -132,11 +152,11 @@ defmodule FtpSession do
         Logger.debug "550 Current path '#{path}' does not exist."
         {"550 Current path '#{path}' does not exist\r\n", cd}
     end
-    new_state = %{connection_status: status, current_directory: new_path, response: response}
+    new_state = %{socket: socket, connection_status: status, current_directory: new_path, response: response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
 
-  def handle_call({:make_directory, path}, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+  def handle_call({:make_directory, path}, _from, state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
     case File.mkdir_p(path) do
       :ok ->
         Logger.info "257 Directory #{path} created."
@@ -145,11 +165,11 @@ defmodule FtpSession do
         Logger.info "550 Directory #{path} could not be created. Reason: #{inspect reason}"
         response = "550 Directory #{path} could not be created. Reason: #{inspect reason}\r\n"
     end
-    new_state=%{connection_status: status, current_directory: cd, response: response}
+    new_state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
 
-  def handle_call({:remove_directory, path}, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+  def handle_call({:remove_directory, path}, _from, state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
     case File.rmdir(path) do
       :ok ->
         Logger.info "200 Directory '#{path}' removed."
@@ -158,11 +178,11 @@ defmodule FtpSession do
         Logger.info "550 Error removing directory '#{path}'. Reason: #{inspect reason}"
         response = "550 Error removing directory '#{path}'. Reason: #{inspect reason}\r\n"
     end
-    new_state=%{connection_status: status, current_directory: cd, response: response}
+    new_state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
 
-  def handle_call({:remove_file, path}, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+  def handle_call({:remove_file, path}, _from, state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
     case File.rm(path) do
       :ok->
         Logger.info "200 File '#{path}' removed."
@@ -171,42 +191,49 @@ defmodule FtpSession do
         Logger.info "550 Error removing file '#{path}'. Reason: #{inspect reason}"
         response = "550 Error removing file '#{path}'. Reason: #{inspect reason}\r\n"
     end
-    new_state=%{connection_status: status, current_directory: cd, response: response}
+    new_state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
 
-  def handle_call(:system_type, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+  def handle_call(:system_type, _from, state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
     Logger.debug "215 UNIX Type: L8\r\n"
     new_response = "215 UNIX Type: L8\r\n"
-    new_state=%{connection_status: status, current_directory: cd, response: new_response}
+    new_state=%{socket: socket, connection_status: status, current_directory: cd, response: new_response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
 
-  def handle_call(:feat, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+  def handle_call(:feat, _from, state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
     Logger.debug "211 no-features\r\n"
     new_response = "211 no-features\r\n"
-    new_state=%{connection_status: status, current_directory: cd, response: new_response}
+    new_state=%{socket: socket, connection_status: status, current_directory: cd, response: new_response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
 
-  def handle_call(:type, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+  def handle_call(:type, _from, state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
     Logger.debug "200 ASCII Non-print"
     new_response = "200 ASCII Non-print\r\n"
-    new_state=%{connection_status: status, current_directory: cd, response: new_response}
+    new_state=%{socket: socket, connection_status: status, current_directory: cd, response: new_response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
 
-  def handle_call(:pasv, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
+  def handle_call(:pasv, _from, state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
     Logger.debug "227 Entering Passive Mode"
     new_response = "227 Entering Passive Mode\r\n"
-    new_state=%{connection_status: status, current_directory: cd, response: new_response}
+    new_state=%{socket: socket, connection_status: status, current_directory: cd, response: new_response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
 
-  def handle_call(:port, _from, state=%{connection_status: status, current_directory: cd, response: response}) do
-    Logger.debug "200 Okay"
+  def handle_call({:port, new_ip, new_data_port}, _from, state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
+    Logger.debug "200 Okay. This is client ip and data_port: IP=#{inspect new_ip} PORT=#{inspect new_data_port}"
     new_response = "200 Okay\r\n"
-    new_state=%{connection_status: status, current_directory: cd, response: new_response}
+    new_state=%{socket: socket, connection_status: status, current_directory: cd, response: new_response, client_ip: new_ip, data_port: new_data_port}
+    {:reply, state, new_state}
+  end
+
+  def handle_call(:quit, _from, state=%{socket: socket, connection_status: status, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
+    Logger.debug "221 Session Ended"
+    new_response = "221 Session Ended\r\n"
+    new_state=%{socket: socket, connection_status: status, current_directory: cd, response: new_response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
 
