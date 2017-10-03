@@ -16,7 +16,8 @@ defmodule Ftp.Mixfile do
   def application do
     # Specify extra applications you'll use from Erlang/Elixir
     [
-      mod: { Ftp, [] },
+      mod: [],
+      #mod: { Ftp, [] },
       extra_applications: [:logger, :ranch]
     ]
   end
@@ -32,7 +33,6 @@ defmodule Ftp.Mixfile do
   # Type "mix help deps" for more examples and options
   defp deps do
     [
-      {:bifrost, github: "thorstadt/bifrost", app: false},
       {:ranch, "~> 1.4.0"}
     ]
   end

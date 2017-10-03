@@ -6,50 +6,50 @@
 #     io:format("Got a connection!~n"),
 #     ok.
 
-defmodule RanchFtpProtocol do
+defmodule FtpProtocol do
 
     @timeout 600000
+    @debug true
     require Logger
     
     def start_link(listener_pid, socket, transport, opts) do
         {:ok, map} = Enum.fetch(opts,0)
+        server_id = Map.get(map, :id)
         starting_directory = Map.get(map, :directory)
         username = Map.get(map, :username)
         password = Map.get(map, :password)
-        pid = spawn_link(__MODULE__, :init, [listener_pid, socket, starting_directory, username, password])
+        pid = spawn_link(__MODULE__, :init, [listener_pid, socket, server_id, starting_directory, username, password])
         {:ok, pid}
     end
 
-    def init(listener_pid, socket, start_directory, username, password) do
+    def init(listener_pid, socket, server_id, start_directory, username, password) do
         :ranch.accept_ack(listener_pid)
-        Logger.debug("Got a connection!")
-        Logger.debug("Starting Directory: #{start_directory}")
+        logger_debug("Got a connection!", server_id)
+        logger_debug("Starting Directory: #{start_directory}", server_id)
         :ranch_tcp.send(socket, "200 Welcome to FTP Server\r\n")
-        sucessful_authentication = auth(socket, username, password)
+        sucessful_authentication = auth(socket, server_id, username, password)
         case sucessful_authentication do
             true -> 
-                Logger.debug("User authenicated!\n")
+                logger_debug("User authenicated!\n", server_id)
                 :ranch_tcp.send(socket, "230 Auth OK \r\n")
-                FtpCommands.start(start_directory)
+                FtpCommands.start(server_id, start_directory)
                 loop_socket(socket, "")
             false ->
-                Logger.debug("Invalid username or password\n")
+                logger_debug("Invalid username or password\n", server_id)
                 :ranch_tcp.send(socket, "430 Invalid username or password\r\n")
         end
 
     end
 
-    def auth(socket, expected_username, expected_password) do
+    def auth(socket, server_id, expected_username, expected_password) do
         {:ok, data} = :ranch_tcp.recv(socket, 0 , @timeout)
-        Logger.debug "Username Given: #{inspect data}"
+        logger_debug "Username Given: #{inspect data}", server_id
         "USER " <> username = data |> String.trim()
 
         :ranch_tcp.send(socket, "331 Enter Password\r\n")
         {:ok, data} = :ranch_tcp.recv(socket, 0 , @timeout)
-        Logger.debug "Password Given: #{inspect data}"
+        logger_debug "Password Given: #{inspect data}", server_id
         "PASS " <> password = data |> String.trim()
-        # username = "apc"
-        # password = "apc"
         
         valid_credentials = valid_username(expected_username, username) + valid_password(expected_password, password)
         case valid_credentials do
@@ -70,25 +70,28 @@ defmodule RanchFtpProtocol do
                     :unknown_command ->
                         response = "202 command not implemented on this server\r\n"
                 end
-                Logger.debug "This is what I'm sending back: #{response}"
+                logger_debug "This is what I'm sending back: #{response}"
                 :ranch_tcp.send(socket, response)
-                Logger.debug "Sent: #{response}"
+                logger_debug "Sent: #{response}"
                 loop_socket(socket, buffer2)
             {:error, :closed} ->
-                Logger.debug("Connection has been closed.")
+                logger_debug("Connection has been closed.")
             {:error, other_reason} ->
-                Logger.debug("Got an error #{inspect other_reason}")
+                logger_debug("Got an error #{inspect other_reason}")
         end
     end
 
     defp parse_command(data, socket) do
-        Logger.debug("Got command #{inspect data}")
+        Logger.debug "i get here"
+        logger_debug("Got command #{inspect data}")
+
+        Logger.debug "i get here"
         command_executed = 
         cond do
             String.contains?(data, "LIST") == true ->
                 cond  do
                     data == "LIST\r\n" ->
-                        %{root_directory: root_directory, current_directory: cd, response: response, client_ip: client_ip, data_port: client_data_port} = FtpCommands.get_state
+                        %{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: client_ip, data_port: client_data_port} = FtpCommands.get_state
                         FtpCommands.list_files
                         new_state = FtpCommands.get_state
                         files = Map.get(new_state, :response)
@@ -98,11 +101,11 @@ defmodule RanchFtpProtocol do
                         :ranch_tcp.send(data_socket, files)
                         :ranch_tcp.close(data_socket)
                         response = "226 Transfer Complete\r\n"
-                        new_state=%{root_directory: root_directory, current_directory: cd, response: response, client_ip: nil, data_port: nil}
+                        new_state=%{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: nil, data_port: nil}
                         FtpCommands.set_state(new_state)
                         :ok
                     data == "LIST -a\r\n" ->
-                        %{root_directory: root_directory, current_directory: cd, response: response, client_ip: client_ip, data_port: client_data_port} = FtpCommands.get_state
+                        %{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: client_ip, data_port: client_data_port} = FtpCommands.get_state
                         FtpCommands.list_files
                         new_state = FtpCommands.get_state
                         files = Map.get(new_state, :response)
@@ -112,12 +115,12 @@ defmodule RanchFtpProtocol do
                         :ranch_tcp.send(data_socket, files)
                         :ranch_tcp.close(data_socket)
                         response = "226 Transfer Complete\r\n"
-                        new_state=%{root_directory: root_directory, current_directory: cd, response: response, client_ip: nil, data_port: nil}
+                        new_state=%{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: nil, data_port: nil}
                         FtpCommands.set_state(new_state)
                         :ok
                     true ->
                         "LIST " <> dir_name = data |> String.trim()
-                        %{root_directory: root_directory, current_directory: cd, response: response, client_ip: client_ip, data_port: client_data_port} = FtpCommands.get_state
+                        %{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: client_ip, data_port: client_data_port} = FtpCommands.get_state
                         FtpCommands.list_files dir_name
                         new_state = FtpCommands.get_state
                         files = Map.get(new_state, :response)
@@ -127,15 +130,15 @@ defmodule RanchFtpProtocol do
                         :ranch_tcp.send(data_socket, files)
                         :ranch_tcp.close(data_socket)
                         response = "226 Transfer Complete\r\n"
-                        new_state=%{root_directory: root_directory, current_directory: cd, response: response, client_ip: nil, data_port: nil}
+                        new_state=%{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: nil, data_port: nil}
                         FtpCommands.set_state(new_state)
                         :ok
                     end
             String.contains?(data, "RETR") == true ->
                 "RETR " <> file = data |> String.trim()
                 current_state = FtpCommands.get_state
-                Logger.debug "This is current_state #{inspect current_state}"
-                %{root_directory: root_directory, current_directory: cd, response: response, client_ip: client_ip, data_port: client_data_port} = FtpCommands.get_state
+                logger_debug "This is current_state #{inspect current_state}"
+                %{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: client_ip, data_port: client_data_port} = FtpCommands.get_state
                 
                 full_file_path = Enum.join([cd, "/" ,file])
                 case File.exists?(full_file_path) do
@@ -150,16 +153,15 @@ defmodule RanchFtpProtocol do
                         response = "550 File does not exist. Not transferring.\r\n"
                 end
                 
-                new_state=%{root_directory: root_directory, current_directory: cd, response: response, client_ip: nil, data_port: nil}
+                new_state=%{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: nil, data_port: nil}
                 FtpCommands.set_state(new_state)
                 :ok
 
             String.contains?(data, "STOR") == true ->
                 "STOR " <> file = data |> String.trim()
                 current_state = FtpCommands.get_state
-                Logger.debug "This is current_state #{inspect current_state}"
-                %{root_directory: root_directory, current_directory: cd, response: response, client_ip: client_ip, data_port: client_data_port} = FtpCommands.get_state
-                
+                logger_debug "This is current_state #{inspect current_state}"
+                %{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: client_ip, data_port: client_data_port} = FtpCommands.get_state
                 full_file_path = Enum.join([cd, "/" ,file])
                 case File.exists?(full_file_path) do
                     true -> 
@@ -167,23 +169,18 @@ defmodule RanchFtpProtocol do
                     false ->
                         :ok
                 end
-                
                 :ranch_tcp.send(socket, "150 Opening Data Socket for transfer...\r\n")
-                :ranch_tcp.send(socket, "227 Entering Passive Mode\r\n")
                 client_ip = to_charlist(client_ip)
                 {:ok, data_socket} = :gen_tcp.connect(client_ip, client_data_port ,[active: false, mode: :binary, packet: :raw])
-                #:ranch_tcp.send(socket, "227 Entering Passive Mode\r\n")
                 {:ok, packet} = receive_file(data_socket)
-                Logger.debug("This is packet: #{inspect packet}")
+                logger_debug("This is packet: #{inspect packet}")
                 a = byte_size(packet)
-                Logger.debug("This is size: #{inspect a}")
+                logger_debug("This is size: #{inspect a}")
                 :ranch_tcp.close(data_socket)
                 :ranch_tcp.shutdown(data_socket, :read_write)
                 :file.write_file(to_charlist(full_file_path), packet)
-                :ranch_tcp.send(socket, "226 Transfer Complete\r\n")
-                response = "200 Okay\r\n"
-
-                new_state=%{root_directory: root_directory, current_directory: cd, response: response, client_ip: nil, data_port: nil}
+                response = "226 Transfer Complete\r\n"
+                new_state=%{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: nil, data_port: nil}
                 FtpCommands.set_state(new_state)
                 :ok
             String.contains?(data, "PWD") == true -> 
@@ -228,7 +225,7 @@ defmodule RanchFtpProtocol do
                 FtpCommands.quit
                 :ok
             true ->
-                Logger.debug "This is data: #{inspect data}"
+                logger_debug "This is data: #{inspect data}"
                 :unknown_command
         end
 
@@ -263,9 +260,24 @@ defmodule RanchFtpProtocol do
             {:ok, new_packet} ->
                 new_packet = Enum.join([packet, new_packet])
                 receive_file(data_socket, new_packet)
-            {:error, reason} ->
-                Logger.error "reason: "
+            {:error, :closed} ->
+                Logger.info "Finished receiving file."
                 {:ok, packet}
+            {:error, other_reason} ->
+                Logger.info "This is reason2: #{other_reason}"
+                {:ok, packet}
+        end
+    end
+
+    defp logger_debug(message, id \\ "") do
+        id = case id do
+            "" -> FtpCommands.get_state |> Map.get(:id)
+            _ -> id
+        end
+        message = Enum.join(["FTP SERVER #{id}: ", message])
+        case @debug do
+          true -> Logger.debug(message)
+          false -> :ok
         end
     end
 
