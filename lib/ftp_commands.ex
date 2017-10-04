@@ -96,13 +96,14 @@ defmodule FtpCommands do
       _ -> path 
     end 
 
-    path = Enum.join([root_directory, "/", String.trim_leading(path, "/")])
+    %{client_dir: client_dir, server_dir: server_dir} = determine_path(root_directory, cd, path)
 
-    new_response = case allowed_to_view(root_directory, path) do
+    new_response = case allowed_to_view(root_directory, server_dir) do
       true ->
-        logger_debug id, "Listing files in path '#{path}'"
-        case File.ls(path) do
+        logger_debug id, "Listing files in path '#{server_dir}'"
+        case File.ls(server_dir) do
           {:ok, files} ->
+            cd = client_dir
             sorted_files = Enum.sort(files)
             files_as_string = Enum.join(sorted_files, " ")
             logger_debug id, "226 Files Found: #{files_as_string}\r\n"
@@ -132,74 +133,82 @@ defmodule FtpCommands do
   end
 
   def handle_call({:change_working_directory, user_path}, _from, state=%{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
-    cd = 
-    case cd do
-      "/" -> ""
-      _ -> cd
-    end
 
-    is_absolute_path =
-    case ( user_path == String.trim_leading(user_path, "/") ) do
-      true -> false
-      false -> true
-    end
-
-    path = 
-    case is_absolute_path do
-      true -> Enum.join([root_directory, user_path])
-      false -> Enum.join([root_directory, cd, "/", user_path])
-    end
-
-    path = Enum.join([root_directory, cd, "/",String.trim_leading(user_path, "/")])
-    {response, new_path} = case File.dir?(path) do
+    %{client_dir: client_dir, server_dir: server_dir} = determine_path(root_directory, cd, user_path)
+    {response, new_path} = 
+    case allowed_to_view(root_directory, server_dir) do
       true ->
-        logger_debug id, "250 Current Directory: #{path}"
-        path = String.trim(path, root_directory) |> tidy_path |> String.trim_trailing("/")
-        
-        {"250 Current Directory: #{path}\r\n", path}
+        case File.dir?(server_dir) do
+          true ->
+            logger_debug id, "250 Current Directory: #{server_dir}"
+            {"250 Current Directory: #{client_dir}\r\n", client_dir}
+          false ->
+            logger_debug id, "550 Current path '#{server_dir}' does not exist."
+            {"550 Current path '#{client_dir}' does not exist\r\n", cd}
+        end
       false ->
-        logger_debug id, "550 Current path '#{path}' does not exist."
-        {"550 Current path '#{user_path}' does not exist\r\n", cd}
-    end
+        logger_debug id, "You don't have permission to view this file/folder."
+        {"You don't have permission to view this file/folder.\r\n", cd}
+      end
     new_state = %{id: id, root_directory: root_directory, current_directory: new_path, response: response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
 
   def handle_call({:make_directory, path}, _from, state=%{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
-    case File.mkdir_p(path) do
-      :ok ->
-        logger_debug id, "257 Directory #{path} created."
-        response = "257 Directory #{path} created\r\n"
-      {:error, reason} ->
-        logger_debug id, "550 Directory #{path} could not be created. Reason: #{inspect reason}"
-        response = "550 Directory #{path} could not be created. Reason: #{inspect reason}\r\n"
+    %{client_dir: client_dir, server_dir: server_dir} = determine_path(root_directory, cd, path)
+    case allowed_to_view(root_directory, server_dir) do
+      true ->
+        case File.mkdir_p(server_dir) do
+          :ok ->
+            logger_debug id, "257 Directory #{server_dir} created."
+            response = "257 Directory #{client_dir} created\r\n"
+          {:error, reason} ->
+            logger_debug id, "550 Directory #{server_dir} could not be created. Reason: #{inspect reason}"
+            response = "550 Directory #{client_dir} could not be created. Reason: #{inspect reason}\r\n"
+        end
+      false ->
+        logger_debug id, "You don't have permission to access this file/folder."
+        response = "You don't have permission to view access file/folder.\r\n"
     end
     new_state=%{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
 
   def handle_call({:remove_directory, path}, _from, state=%{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
-    case File.rmdir(path) do
-      :ok ->
-        logger_debug id, "200 Directory '#{path}' removed."
-        response = "200 Directory '#{path}' removed\r\n"
-      {:error, reason} ->
-        logger_debug id, "550 Error removing directory '#{path}'. Reason: #{inspect reason}"
-        response = "550 Error removing directory '#{path}'. Reason: #{inspect reason}\r\n"
+    %{client_dir: client_dir, server_dir: server_dir} = determine_path(root_directory, cd, path)
+    case allowed_to_view(root_directory, server_dir) do
+      true ->
+        case File.rmdir(server_dir) do
+          :ok ->
+            logger_debug id, "200 Directory '#{server_dir}' removed."
+            response = "200 Directory '#{client_dir}' removed\r\n"
+          {:error, reason} ->
+            logger_debug id, "550 Error removing directory '#{server_dir}'. Reason: #{inspect reason}"
+            response = "550 Error removing directory '#{client_dir}'. Reason: #{inspect reason}\r\n"
+        end
+      false ->
+        logger_debug id, "You don't have permission to access this file/folder."
+        response = "You don't have permission to view access file/folder.\r\n"
     end
     new_state=%{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
 
   def handle_call({:remove_file, path}, _from, state=%{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
-    
-    case File.rm(path) do
-      :ok->
-        logger_debug id, "200 File '#{path}' removed."
-        response = "200 File '#{path}' removed\r\n"
-      {:error, reason} ->
-        logger_debug id, "550 Error removing file '#{path}'. Reason: #{inspect reason}"
-        response = "550 Error removing file '#{path}'. Reason: #{inspect reason}\r\n"
+    %{client_dir: client_dir, server_dir: server_dir} = determine_path(root_directory, cd, path)
+    case allowed_to_view(root_directory, server_dir) do
+      true ->
+        case File.rm(server_dir) do
+          :ok->
+            logger_debug id, "200 File '#{server_dir}' removed."
+            response = "200 File '#{client_dir}' removed\r\n"
+          {:error, reason} ->
+            logger_debug id, "550 Error removing file '#{server_dir}'. Reason: #{inspect reason}"
+            response = "550 Error removing file '#{client_dir}'. Reason: #{inspect reason}\r\n"
+        end
+      false ->
+        logger_debug id, "You don't have permission to access this file/folder."
+        response = "You don't have permission to view access file/folder.\r\n"
     end
     new_state=%{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
@@ -280,25 +289,24 @@ defmodule FtpCommands do
   end
 
   def determine_path(root_dir, current_dir, user_dir) do
-    cd =
-    case current_dir do
-      "/" -> ""
-      _ -> ""
-    end
+    cd = current_dir
+    # case current_dir do
+    #   "/" -> ""
+    #   _ -> ""
+    # end
 
-    path =
     case is_absolute_path(user_dir) do
       true ->
-        user_dir = tidy_path(user_dir)
+        #user_dir = tidy_path(user_dir)
         server_dir = Enum.join([root_dir, user_dir])
         client_dir = String.trim(server_dir, root_dir)
-        %{root_dir: root_dir, current_dir: client_dir, user_dir: user_dir, server_dir: server_dir}
+        %{client_dir: client_dir, server_dir: server_dir}
       false ->
         user_dir = tidy_path(user_dir)
         cd = tidy_path(cd)
         server_dir = Enum.join([root_dir, cd, "/" ,user_dir])
         client_dir = String.trim(server_dir, root_dir)
-        %{root_dir: root_dir, current_dir: client_dir, user_dir: user_dir, server_dir: server_dir}
+        %{client_dir: client_dir, server_dir: server_dir}
     end
 
 

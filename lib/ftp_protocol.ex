@@ -8,7 +8,7 @@
 
 defmodule FtpProtocol do
 
-    @timeout 600000
+    @timeout :infinity
     @debug true
     require Logger
     
