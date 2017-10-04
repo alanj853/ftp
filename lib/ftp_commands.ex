@@ -75,6 +75,10 @@ defmodule FtpCommands do
     GenServer.call __MODULE__, {:port, new_ip, new_data_port}
   end
 
+  def rest() do
+    GenServer.call __MODULE__, :rest
+  end
+
   def quit() do
     GenServer.call __MODULE__, :quit
   end
@@ -229,8 +233,8 @@ defmodule FtpCommands do
   end
 
   def handle_call(:type, _from, state=%{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
-    logger_debug id, "200 ASCII Non-print"
-    new_response = "200 ASCII Non-print\r\n"
+    logger_debug id, "200 BINARY"
+    new_response = "200 BINARY\r\n"
     new_state=%{id: id, root_directory: root_directory, current_directory: cd, response: new_response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
@@ -246,6 +250,13 @@ defmodule FtpCommands do
     logger_debug id, "200 Okay. This is client ip and data_port: IP=#{inspect new_ip} PORT=#{inspect new_data_port}"
     new_response = "200 Okay\r\n"
     new_state=%{id: id, root_directory: root_directory, current_directory: cd, response: new_response, client_ip: new_ip, data_port: new_data_port}
+    {:reply, state, new_state}
+  end
+
+  def handle_call(:rest, _from, state=%{id: id, root_directory: root_directory, current_directory: cd, response: response, client_ip: ip, data_port: data_port}) do
+    logger_debug id, "200 Okay"
+    new_response = "200 Okaye\r\n"
+    new_state=%{id: id, root_directory: root_directory, current_directory: cd, response: new_response, client_ip: ip, data_port: data_port}
     {:reply, state, new_state}
   end
 
