@@ -30,6 +30,11 @@ defmodule FtpInfo do
       
       {:reply, state, state}
     end
+
+    def handle_info({:set_server_state, new_state}, state) do
+      FtpServer.set_state(new_state)
+      {:noreply, state}
+  end
   
     def handle_call({:set_state, new_state}, _from, state=%{root_dir: root_dir, server_cd: server_cd , client_cd: client_cd, data_ip: ip, data_port: port, type: type, offset: offset}) do
       {:reply, state, new_state}
