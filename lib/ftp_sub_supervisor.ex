@@ -1,7 +1,7 @@
 defmodule FtpSubSupervisor do
     use Supervisor
 
-    def start_link(state = %{ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, root_dir: root_dir}) do
+    def start_link(state) do
         {:ok, pid} = Supervisor.start_link(__MODULE__, state)
     end
 

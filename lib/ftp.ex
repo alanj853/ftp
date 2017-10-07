@@ -5,37 +5,25 @@ defmodule Ftp do
     
      use Application
         def start(_type, _args)  do
-        # #     port = 2121
-        # #     root_directory = "/home/user"
-        # #     username = "apc2"
-        # #     password = "apc2"
-        # #     ip = "127.0.0.1"
-        # #     start_server(:myftp1, "127.0.0.1", 2121, /home/user, "apc1", "apc1")
-        # #     #start_server(:myftp2, ip, 2122, root_directory, "apc2", "apc2")
-        # #     #start_server(:myftp3, ip, 2123, root_directory, "apc3", "apc3")
-        # #     #start_server(:myftp4, ip, 2124, root_directory, "apc4", "apc4")
-            #start_server(:myftp1, "127.0.0.1", 2121, "/home/alan/var/system", "user1", "user1")
-            FtpSupervisor.start_link
+            start_server("127.0.0.1", 2121, "/home/user/var/system", "user1", "user1")
         end
     
         
         @doc """
         Function to start the server.
-        `id`: An `atom` to identify the server
         `ip`: An ip address as `String`
         `port:` The port number server will run on
         `root_directory`: The root directory the server will run from and display to user.
         `username`: The username needed to log into the server. Is \"apc\" by default.
         `password`: The password needed to log into the server. Is \"apc\" by default.
          """
-        def start_server(id, ip, port, root_directory, username \\ "apc", password \\ "apc") do
+        def start_server(ip, port, root_directory, username \\ "apc", password \\ "apc") do
             ip = process_ip(ip)
-            server_id = to_string(id)
-            :ranch.start_listener(id, 10, :ranch_tcp, [port: port, ip: ip], FtpServer, [%{id: server_id, directory: root_directory, username: username, password: password}])
+            FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password})
         end
     
         def start_dummy() do
-            start_server(:myftp1, "127.0.0.1", 2121, "/home/alan/var/system", "user1", "user1")
+            start_server("127.0.0.1", 2121, "/home/alan/var/system", "user1", "user1")
         end
     
         defp process_ip(ip) do

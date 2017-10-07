@@ -26,8 +26,6 @@ defmodule FtpInfo do
     end
   
     def handle_call(:get_state, _from, state) do
-      #IO.puts "This is call: #{inspect from}"
-      
       {:reply, state, state}
     end
 

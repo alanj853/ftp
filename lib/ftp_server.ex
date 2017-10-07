@@ -48,23 +48,22 @@ defmodule FtpServer do
     @ftp_FILEFAIL            550
     @ftp_NOPERM              550
     @ftp_UPLOADFAIL          553
-    
+
     @timeout :infinity
     @server_name __MODULE__
     @debug 2
+    @restart_time 5000
     require Logger
     use GenServer
 
-    def start_link(args = %{ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, root_dir: root_dir}) do
-        initial_state = %{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: nil}
+    def start_link(args = %{ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port}) do
+        initial_state = %{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: nil, username: username, password: password, ip: ip, port: port}
         GenServer.start_link(__MODULE__, initial_state, name: @server_name)
     end
 
-    def init(state= %{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: socket}) do
-        IO.puts "starting #{inspect ftp_data_pid}. This is self: #{inspect self()} "
+    def init(state= %{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: socket, username: username, password: password, ip: ip, port: port}) do
         FtpData.get_state ftp_data_pid
         FtpData.set_server_pid(ftp_data_pid, self())
-        IO.puts "done"
         start_listener(state)
         {:ok, state}
     end
@@ -77,49 +76,48 @@ defmodule FtpServer do
         {:reply, state, new_state}
     end
 
-    def handle_info(:listen, state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: old_socket}) do
-        IO.puts "Listening..."
-        {:ok, lsocket} = :gen_tcp.listen(2121, [ip: {127,0,0,1}, active: false, backlog: 1024, nodelay: true, send_timeout: 30000, send_timeout_close: true])
-        
-        new_state = 
+    def handle_info(:listen, state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: old_socket, username: username, password: password, ip: ip, port: port}) do
+        logger_debug "Listening..."
+        {:ok, lsocket} = :gen_tcp.listen(port, [ip: ip, active: false, backlog: 1024, nodelay: true, send_timeout: 30000, send_timeout_close: true])
+
+        new_state =
         case :gen_tcp.accept(lsocket) do
-            {:ok, socket} -> 
-                new_state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: socket}
+            {:ok, socket} ->
+                new_state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: socket, username: username, password: password, ip: ip, port: port}
                 Kernel.send(ftp_info_pid, {:set_server_state, new_state} )
                 logger_debug "got connection"
                 send_message(@ftp_OK, "Welcome to FTP Server", socket, false)
                 sucessful_authentication = auth(socket, "user1", "user1")
                 case sucessful_authentication do
-                    true -> 
+                    true ->
                         send_message(@ftp_LOGINOK, "User Authenticated", socket, false)
-                        #Kernel.send(self(), {:get_command, socket} )
-                        case :inet.getopts(socket, [:active]) do
-                            {:ok, opts} -> IO.puts "This is socket now: #{inspect opts}"
-                            {:error, reason} -> IO.puts "Error getting opts. Reason #{reason}"
-                        end
                         case :inet.setopts(socket, [active: true]) do
-                            :ok -> IO.puts "Socket successfully set to active"
-                            {:error, reason} -> IO.puts "Socket not set to active. Reason #{reason}"
-                        end
-                        case :inet.getopts(socket, [:active]) do
-                            {:ok, opts} -> IO.puts "This is socket now: #{inspect opts}"
-                            {:error, reason} -> IO.puts "Error getting opts. Reason #{reason}"
+                            :ok -> logger_debug "Socket successfully set to active"
+                            {:error, reason} -> logger_debug "Socket not set to active. Reason #{reason}"
                         end
                         %{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: nil}
                     false ->
                         logger_debug("Invalid username or password\n")
+                        send_message(@ftp_LOGINERR, "Invalid username or password", socket, false)
+                        new_state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: nil, username: username, password: password, ip: ip, port: port}
+                        Kernel.send(ftp_info_pid, {:set_server_state, new_state} )
+                        :gen_tcp.close(socket)
+                        :gen_tcp.close(lsocket)
+                        logger_debug("Restarting Server in #{inspect @restart_time} ms...\n")
+                        :timer.sleep(5000) ## allow time for sockets to close properly.
+                        start_listener(new_state)
                 end
-                
+
             {:error, reason} -> logger_debug "Got error while listening #{reason}"
         end
-        
+
         {:noreply, state}
     end
 
     def handle_info({:get_command, socket}, state) do
         logger_debug "Waiting for command on socket #{inspect socket}..."
         case :gen_tcp.recv(socket, 0) do
-            {:ok, packet} -> 
+            {:ok, packet} ->
                 logger_debug "got command: #{packet}"
                 handle_command(packet, socket, state)
             {:error, reason} -> logger_debug "Got error while waiting #{reason}"
@@ -136,43 +134,33 @@ defmodule FtpServer do
             :socket_create_ok -> 2#send_message(@ftp_TRANSFEROK, "Transfer Complete", socket)
             _ -> :ok
         end
-        IO.puts "got here #{inspect x}"
         {:noreply, state}
     end
 
     def handle_info({:tcp, pid, packet }, state) do
-        #IO.puts "In tcp handle info bitch!"
         socket = Map.get(state, :socket)
         logger_debug "got command: #{packet}"
         handle_command(packet, socket, state)
         {:noreply, state}
     end
 
-    def handle_info({:from_data_socket, :socket_transfer_ok},state) do
-        socket = Map.get(state, :socket)
-        logger_debug "This is msg: socket_transfer_ok"
-        x = send_message(@ftp_TRANSFEROK, "Transfer Complete", socket)
-        IO.puts "got here 2 #{inspect x}"
+    def handle_info({:tcp_closed, socket }, state) do
+        logger_debug "Socket #{inspect socket} closed."
+        #start_listener(state) # restart socket again to be ready for a new connection
         {:noreply, state}
     end
-
-    def handle_info(:hello, state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: socket}) do
-        IO.puts "This is msg: hello"
-        {:noreply, state}
-    end
-
-    def terminate(_reason, state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: socket}) do
+    
+    def terminate(_reason, state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: socket, username: username, password: password, ip: ip, port: port}) do
         Logger.info "This is terminiate reason: #{inspect _reason}"
         :gen_tcp.close(socket)
     end
 
     def handle_command(command, socket, state) do
-        #logger_debug "handling command #{command}"
         logger_debug("FROM CLIENT: #{command}")
         #buffer2 = Enum.join([buffer, command])
         command = to_string(command)
-        {code, response} = 
-        cond do 
+        {code, response} =
+        cond do
             String.contains?(command, "LIST") == true -> handle_list(socket, command, state)
             String.contains?(command, "TYPE") == true -> handle_type(socket, command, state)
             String.contains?(command, "STRU") == true -> handle_stru(socket, command, state)
@@ -203,7 +191,7 @@ defmodule FtpServer do
         end
     end
 
-    def start_listener(state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: socket}) do
+    def start_listener(state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: socket, username: username, password: password, ip: ip, port: port}) do
         Kernel.send(self(), :listen)
     end
 
@@ -286,55 +274,49 @@ defmodule FtpServer do
 
     def handle_list(socket, command, state) do
         ftp_info_pid = Map.get(state, :ftp_info_pid)
+        ftp_data_pid = Map.get(state, :ftp_data_pid)
         case command do
-            "LIST\r\n" -> 
-                %{root_dir: root_dir, server_cd: server_cd , client_cd: current_client_working_directory, data_socket: data_socket, data_ip: ip, data_port: port, type: type, offset: offset , server_pid: server_pid} = FtpInfo.get_state ftp_info_pid
-                {:ok, files} = File.ls(server_cd)
-                file_info = get_info(server_cd, files, state)
-                file_info = Enum.join(["(", file_info, ")"])
+            "LIST\r\n" ->
+                %{root_dir: root_dir, server_cd: current_server_working_directory , client_cd: current_client_working_directory, data_ip: ip, data_port: port, type: type, offset: offset} = FtpInfo.get_state ftp_info_pid
+                {:ok, files} = File.ls(current_server_working_directory)
+                file_info = get_info(current_server_working_directory, files, state)
+                file_info = Enum.join([file_info, "\r\n"])
                 send_message(@ftp_DATACONN, "Opening Data Socket for transfer of ls command...", socket)
                 ip = to_charlist(ip)
-                {:ok, data_socket} = :gen_tcp.connect(ip, port ,[active: false, mode: :binary, packet: :raw])
-                :ranch_tcp.send(data_socket, file_info)
-                :ranch_tcp.close(data_socket)
-                reset_data_socket(state)
-                {@ftp_TRANSFEROK, "Transfer Complete"}
-            "LIST -a\r\n" -> 
-                %{root_dir: root_dir, server_cd: server_cd , client_cd: current_client_working_directory, data_socket: data_socket, data_ip: ip, data_port: port, type: type, offset: offset , server_pid: server_pid} = FtpInfo.get_state ftp_info_pid
-                {:ok, files} = File.ls(server_cd)
-                file_info = get_info(server_cd, files, state)
-                file_info = Enum.join(["(", file_info, ")"])
+                FtpData.create_socket(ftp_data_pid, ip, port)
+                FtpData.list(ftp_data_pid, file_info)
+                {0, :ok}
+            "LIST -a\r\n" ->
+                %{root_dir: root_dir, server_cd: current_server_working_directory , client_cd: current_client_working_directory, data_ip: ip, data_port: port, type: type, offset: offset} = FtpInfo.get_state ftp_info_pid
+                {:ok, files} = File.ls(current_server_working_directory)
+                file_info = get_info(current_server_working_directory, files, state)
+                file_info = Enum.join([file_info, "\r\n"])
                 send_message(@ftp_DATACONN, "Opening Data Socket for transfer of ls command...", socket)
                 ip = to_charlist(ip)
-                {:ok, data_socket} = :gen_tcp.connect(ip, port ,[active: false, mode: :binary, packet: :raw])
-                :ranch_tcp.send(data_socket, file_info)
-                :ranch_tcp.close(data_socket)
-                reset_data_socket(state)
-                {@ftp_TRANSFEROK, "Transfer Complete"}
-                
+                FtpData.create_socket(ftp_data_pid, ip, port)
+                FtpData.list(ftp_data_pid, file_info)
+                {0, :ok}
+            _ -> {@ftp_COMMANDNOTIMPL, "Command not implemented on this server"}
+
+
         end
     end
 
     def handle_size(socket, command, state) do
         "SIZE " <> path = command |> String.trim()
         ftp_info_pid = Map.get(state, :ftp_info_pid)
-        current_client_working_directory = FtpInfo.get_state(ftp_info_pid) |> Map.get(:client_cd)
-        current_server_working_directory = FtpInfo.get_state(ftp_info_pid) |> Map.get(:server_cd)
-        working_path = 
-        case is_absolute_path(path) do
-            true -> Enum.join([current_server_working_directory, path])
-            false ->Enum.join([current_server_working_directory, current_client_working_directory ,path])
-        end
+        %{root_dir: root_dir, server_cd: current_server_working_directory , client_cd: current_client_working_directory, data_ip: ip, data_port: port, type: type, offset: offset} = FtpInfo.get_state ftp_info_pid
+        working_path = determine_path(root_dir, current_client_working_directory, path)
 
         path_exists = File.exists?(working_path)
         is_directory = File.dir?(working_path)
         have_read_access = allowed_to_read(working_path, state)
-        
+
         cond do
             is_directory == true -> {@ftp_FILEFAIL, "Current path '#{path}' is a directory."}
             path_exists == false -> {@ftp_FILEFAIL, "Current directory '#{path}' does not exist."}
             have_read_access == false -> {@ftp_NOPERM, "You don't have permission to read from this directory ('#{path}')."}
-            true -> 
+            true ->
                 {:ok, info} = File.stat(working_path)
                 file_size = Map.get(info, :size)
                 {@ftp_STATFILE_OK, "#{file_size}"}
@@ -343,13 +325,10 @@ defmodule FtpServer do
 
     def handle_stor(socket, command, state) do
         ftp_info_pid = Map.get(state, :ftp_info_pid)
+        ftp_data_pid = Map.get(state, :ftp_data_pid)
         "STOR " <> path = command |> String.trim()
-        %{root_dir: root_dir, server_cd: current_server_working_directory , client_cd: current_client_working_directory, data_socket: data_socket, data_ip: ip, data_port: port, type: type, offset: offset , server_pid: server_pid} = FtpInfo.get_state ftp_info_pid
-        working_path = 
-        case is_absolute_path(path) do
-            true -> Enum.join([current_server_working_directory, path])
-            false ->Enum.join([current_server_working_directory, current_client_working_directory ,path])
-        end
+        %{root_dir: root_dir, server_cd: current_server_working_directory , client_cd: current_client_working_directory, data_ip: ip, data_port: port, type: type, offset: offset} = FtpInfo.get_state ftp_info_pid
+        working_path = determine_path(root_dir, current_client_working_directory, path)
 
         case allowed_to_write(working_path) do
             true ->
@@ -360,16 +339,9 @@ defmodule FtpServer do
                 end
                 send_message(@ftp_DATACONN, "Opening Data Socket to receive file...", socket)
                 ip = to_charlist(ip)
-                {:ok, data_socket} = :gen_tcp.connect(ip, port ,[active: false, mode: :binary, packet: :raw])
-                {:ok, file} = receive_file(data_socket)
-                logger_debug("This is packet: #{inspect file}")
-                file_size = byte_size(file)
-                logger_debug("This is size: #{inspect file_size}")
-                :ranch_tcp.close(data_socket)
-                :ranch_tcp.shutdown(data_socket, :read_write)
-                :file.write_file(to_charlist(working_path), file)
-                reset_data_socket(state)
-                {@ftp_TRANSFEROK, "File Received"}
+                FtpData.create_socket(ftp_data_pid, ip, port)
+                FtpData.stor(ftp_data_pid, working_path)
+                {0, :ok}
             false ->
                 {@ftp_NOPERM, "You don't have permission to write to this directory ('#{path}')."}
         end
@@ -380,30 +352,21 @@ defmodule FtpServer do
         ftp_info_pid = Map.get(state, :ftp_info_pid)
         ftp_data_pid = Map.get(state, :ftp_data_pid)
         %{root_dir: root_dir, server_cd: current_server_working_directory , client_cd: current_client_working_directory, data_ip: ip, data_port: port, type: type, offset: offset} = FtpInfo.get_state ftp_info_pid
-        working_path = 
-        case is_absolute_path(path) do
-            true -> Enum.join([current_server_working_directory, path])
-            false ->Enum.join([current_server_working_directory, current_client_working_directory ,path])
-        end
+        working_path = determine_path(root_dir, current_client_working_directory, path)
 
         path_exists = File.exists?(working_path)
         is_directory = File.dir?(working_path)
         have_read_access = allowed_to_read(working_path, state)
-        
+
         cond do
             is_directory == true -> {@ftp_FILEFAIL, "Current path '#{path}' is a directory."}
             path_exists == false -> {@ftp_FILEFAIL, "Current directory '#{path}' does not exist."}
             have_read_access == false -> {@ftp_NOPERM, "You don't have permission to read from this directory ('#{path}')."}
-            true -> 
+            true ->
                 send_message(@ftp_DATACONN, "Opening Data Socket for transfer of file #{path} from offset #{offset}...", socket)
                 ip = to_charlist(ip)
                 FtpData.create_socket(ftp_data_pid, ip, port)
                 FtpData.retr(ftp_data_pid, working_path, offset)
-                #{:ok, data_socket} = :gen_tcp.connect(ip, port ,[active: false, mode: :binary, packet: :raw])
-                #:ranch_tcp.sendfile(data_socket, working_path, offset, 0)
-                #:ranch_tcp.close(data_socket)
-                #reset_data_socket()
-                #{@ftp_TRANSFEROK, "Transfer Complete"}
                 {0, :ok}
         end
     end
@@ -418,44 +381,32 @@ defmodule FtpServer do
     def handle_cwd(socket, command, state) do
         ftp_info_pid = Map.get(state, :ftp_info_pid)
         "CWD " <> path = command |> String.trim()
-        path = 
-        case String.contains?(path, "..") do 
-            true -> handle_cd_up(path, state)
 
-            false -> path
-        end
-
-        current_client_working_directory = FtpInfo.get_state ftp_info_pid |> Map.get(:client_cd)
-        current_server_working_directory = FtpInfo.get_state ftp_info_pid |> Map.get(:server_cd)
-        root_directory = FtpInfo.get_state ftp_info_pid |> Map.get(:root_dir)
-
-        working_path = 
-        case is_absolute_path(path) do
-            true -> Enum.join([root_directory, path])
-            false ->Enum.join([current_server_working_directory, current_client_working_directory ,path])
-        end
-        logger_debug "This is working path: #{working_path}"
-        path_exists = File.exists?(working_path)
-        is_directory = File.dir?(working_path)
-        have_read_access = allowed_to_read(working_path, state)
+        current_client_working_directory = FtpInfo.get_state(ftp_info_pid) |> Map.get(:client_cd)
+        root_directory = FtpInfo.get_state(ftp_info_pid) |> Map.get(:root_dir)
+        path = determine_path(root_directory, current_client_working_directory, path)
+        logger_debug "This is working path on server: #{path}"
+        new_client_working_directory = String.trim_leading(path, root_directory)
         
+        path_exists = File.exists?(path)
+        is_directory = File.dir?(path)
+        have_read_access = allowed_to_read(path, state)
+
         cond do
-            is_directory == false -> {@ftp_FILEFAIL, "Current path '#{path}' is not a directory."}
-            path_exists == false -> {@ftp_FILEFAIL, "Current directory '#{path}' does not exist."}
-            have_read_access == false -> {@ftp_NOPERM, "You don't have permission to read from this directory ('#{path}')."}
-            true -> 
-                new_server_working_directory = String.trim_trailing(working_path, "/")
-                new_client_working_directory = String.trim_leading(working_path, root_directory)
+            is_directory == false -> {@ftp_FILEFAIL, "Current path '#{new_client_working_directory}' is not a directory."}
+            path_exists == false -> {@ftp_FILEFAIL, "Current directory '#{new_client_working_directory}' does not exist."}
+            have_read_access == false -> {@ftp_NOPERM, "You don't have permission to read from this directory ('#{new_client_working_directory}')."}
+            true ->
                 update_client_cd(new_client_working_directory, state)
-                update_server_cd(new_server_working_directory, state)
-                {@ftp_CWDOK, "Current directory changed to '#{new_client_working_directory}''"}
+                update_server_cd(path, state)
+                {@ftp_CWDOK, "Current directory changed to '#{new_client_working_directory}'"}
         end
     end
 
 
     ## HELPER FUNCTIONS
-    
-    
+
+
     defp valid_username(expected_username, username) do
         case (expected_username == username) do
             true -> 0
@@ -470,20 +421,6 @@ defmodule FtpServer do
         end
     end
 
-    defp receive_file(data_socket, packet \\ "") do
-        case :gen_tcp.recv(data_socket, 0) do
-            {:ok, new_packet} ->
-                new_packet = Enum.join([packet, new_packet])
-                receive_file(data_socket, new_packet)
-            {:error, :closed} ->
-                logger_debug "Finished receiving file."
-                {:ok, packet}
-            {:error, other_reason} ->
-                logger_debug "This is reason2: #{other_reason}"
-                {:ok, packet}
-        end
-    end
-
     defp logger_debug(message, id \\ "") do
         case @debug do
             0 -> :ok
@@ -494,7 +431,7 @@ defmodule FtpServer do
     defp send_message(code, msg, socket, socket_mode \\ true) do
         message = Enum.join([to_string(code), " " , msg, "\r\n"])
         case @debug do
-            2 -> 
+            2 ->
                 logger_debug("Sending this message to client: #{message}. Socket = #{inspect socket}")
             _ -> :ok
         end
@@ -503,29 +440,28 @@ defmodule FtpServer do
         :inet.setopts(socket, [active: false])
 
         case :inet.getopts(socket, [:active]) do
-            {:ok, opts} -> IO.puts "This is socket now: #{inspect opts}"
-            {:error, reason} -> IO.puts "Error getting opts. Reason #{reason}"
+            {:ok, opts} -> logger_debug "This is socket now: #{inspect opts}"
+            {:error, reason} -> logger_debug "Error getting opts. Reason #{reason}"
         end
-        
-        send_status = 
+
+        send_status =
         case :gen_tcp.send(socket, message) do
             :ok -> "Message '#{message}'' sent to client"
             {:error, reason} -> "Error sending message to Client: #{reason}"
         end
 
         case @debug do
-            2 -> 
+            2 ->
                 logger_debug("FROM SERVER #{message}")
                 logger_debug(send_status)
             _ -> :ok
         end
         
-        
         :inet.setopts(socket, [active: socket_mode])
 
         case :inet.getopts(socket, [:active]) do
-            {:ok, opts} -> IO.puts "This is socket now: #{inspect opts}"
-            {:error, reason} -> IO.puts "Error getting opts. Reason #{reason}"
+            {:ok, opts} -> logger_debug "This is socket now: #{inspect opts}"
+            {:error, reason} -> logger_debug "Error getting opts. Reason #{reason}"
         end
     end
 
@@ -578,10 +514,10 @@ defmodule FtpServer do
     end
 
     @doc """
-    Simple module to check if the user can view a file/folder. Function attempts to 
-    perform a `String.trim_leading` call on the `current_path`. If `current_path` is 
-    part of the `root_path`, the `String.trim_leading` call will be able to remove the 
-    `root_path` string from the `current_path` string. If not, it will simply return 
+    Simple module to check if the user can view a file/folder. Function attempts to
+    perform a `String.trim_leading` call on the `current_path`. If `current_path` is
+    part of the `root_path`, the `String.trim_leading` call will be able to remove the
+    `root_path` string from the `current_path` string. If not, it will simply return
     the original `current_path`
     """
     defp allowed_to_read(current_path, state) do
@@ -595,10 +531,8 @@ defmodule FtpServer do
         false ->
             case (current_path == String.trim_leading(current_path, root_dir)) do
             true ->
-                #logger_debug id, "#{current_path} is not on #{root_dir}"
                 false
             false ->
-                #logger_debug id, "#{current_path} is on #{root_dir}"
                 true
             end
         end
@@ -610,29 +544,6 @@ defmodule FtpServer do
         true
     end
 
-    defp handle_cd_up(current_path, state) do
-        ftp_info_pid = Map.get(state, :ftp_info_pid)
-        current_path = String.trim_trailing(current_path, "/../")
-        current_path = String.trim_trailing(current_path, "/..")
-        case current_path do
-            "" -> "/"
-            ".." ->
-                IO.puts "I go here"
-                list = FtpInfo.get_state ftp_info_pid |> Map.get(:client_cd) |> String.split("/")
-                list_size = Enum.count(list)
-                { _, new_list} = List.pop_at(list, (list_size - 1))
-                case (new_list == [""]) do
-                    true -> "/"
-                    false -> Enum.join(new_list, "/")
-                end
-            _ ->
-                list = String.split(current_path, "/")
-                list_size = Enum.count(list)
-                { _, new_list} = List.pop_at(list, (list_size - 1))
-                Enum.join(new_list, "/")
-        end
-    end
-
     def get_info(cd,files, state) do
         list = for file <- files, do: Enum.join([cd, "/", file]) |> format_file_info(state)
         Enum.join(list, "\r\n")
@@ -642,8 +553,8 @@ defmodule FtpServer do
         ftp_info_pid = Map.get(state, :ftp_info_pid)
         state = FtpInfo.get_state ftp_info_pid
         root_dir = Map.get(state, :root_dir)
-        name = String.trim_leading(file, root_dir)
-        IO.puts "getting info for #{file}"
+        name = String.trim_leading(file, root_dir) |> String.split("/") |> List.last
+        logger_debug "getting info for #{file}"
         {:ok, info} = File.stat(file)
         size = Map.get(info, :size)
         {{y, m, d}, {h, min, s}} = Map.get(info, :mtime)
@@ -660,12 +571,12 @@ defmodule FtpServer do
     end
 
     def format_permissions(type, access) do
-        directory = 
-        case type do 
+        directory =
+        case type do
             :directory -> "d"
             _ -> "-"
         end
-        permissions = 
+        permissions =
         case access do
             :read -> "r--"
             :write -> "w--"
@@ -701,11 +612,22 @@ defmodule FtpServer do
         {:ok, data} = :gen_tcp.recv(socket, 0)
         logger_debug "Password Given: #{inspect data}"
         "PASS " <> password = to_string(data) |> String.trim()
-        
+
         valid_credentials = valid_username(expected_username, username) + valid_password(expected_password, password)
         case valid_credentials do
             0 -> true
             _ -> false
         end
+    end
+
+    defp determine_path(root_dir, cd, path) do
+        ## check if path given is an absolute path
+        new_path = 
+        case is_absolute_path(path) do
+            true -> String.trim_leading(path, "/") |> Path.expand(root_dir)
+            false -> String.trim_leading(path, "/") |> Path.expand(cd) |> String.trim_leading("/") |> Path.expand(root_dir)
+        end
+        logger_debug "This is the path we were given: '#{path}'. This is cd: '#{cd}'. This is root_dir: '#{root_dir}'. Determined that this is the current path: '#{new_path}'"
+        new_path
     end
 end
