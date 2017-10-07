@@ -130,6 +130,7 @@ defmodule FtpServer do
         logger_debug "This is msg: #{inspect msg}"
         x = case msg do
             :socket_transfer_ok -> send_message(@ftp_TRANSFEROK, "Transfer Complete", socket)
+            :socket_transfer_failed -> send_message(@ftp_FILEFAIL, "Transfer Failed", socket)
             :socket_close_ok -> 1#send_message(@ftp_TRANSFEROK, "Transfer Complete", socket)
             :socket_create_ok -> 2#send_message(@ftp_TRANSFEROK, "Transfer Complete", socket)
             _ -> :ok

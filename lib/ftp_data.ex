@@ -55,10 +55,16 @@ defmodule FtpData do
 
     def handle_cast({:retr, file, new_offset} , state=%{socket: socket, server_pid: server_pid}) do
       logger_debug "[DATA_SOCKET #{inspect socket}] Sending file..."
-      :ranch_tcp.sendfile(socket, file, new_offset, 0)
-      logger_debug "[DATA_SOCKET #{inspect socket}] File sent."
-      message_server(server_pid, {:from_data_socket, :socket_transfer_ok})
-      :ranch_tcp.close(socket)
+      case :ranch_tcp.sendfile(socket, file, new_offset, 0) do
+        {:ok, exit_code} ->
+          logger_debug "[DATA_SOCKET #{inspect socket}] File sent."
+          message_server(server_pid, {:from_data_socket, :socket_transfer_ok})
+        {:error, reason} -> 
+          logger_debug "[DATA_SOCKET #{inspect socket}] File not sent. Reason: #{inspect reason}"
+          message_server(server_pid, {:from_data_socket, :socket_transfer_failed})
+      end
+      
+      :gen_tcp.close(socket)
       new_state=%{socket: nil, server_pid: server_pid}
       {:noreply, new_state}
     end
@@ -72,17 +78,17 @@ defmodule FtpData do
       :file.write_file(to_charlist(to_path), file)
       logger_debug "[DATA_SOCKET #{inspect socket}] File received."
       message_server(server_pid, {:from_data_socket, :socket_transfer_ok})
-      :ranch_tcp.close(socket)
+      :gen_tcp.close(socket)
       new_state=%{socket: nil, server_pid: server_pid}
       {:noreply, new_state}
     end
 
     def handle_cast({:list, file_info} , state=%{socket: socket, server_pid: server_pid}) do
       logger_debug "[DATA_SOCKET #{inspect socket}] Sending result from LIST command..."
-      :ranch_tcp.send(socket, file_info)
+      :gen_tcp.send(socket, file_info)
       logger_debug "[DATA_SOCKET #{inspect socket}] Result from LIST command sent."
       message_server(server_pid, {:from_data_socket, :socket_transfer_ok})
-      :ranch_tcp.close(socket)
+      :gen_tcp.close(socket)
       new_state=%{socket: nil, server_pid: server_pid}
       {:noreply, new_state}
     end
@@ -91,7 +97,7 @@ defmodule FtpData do
       logger_debug "[DATA_SOCKET #{inspect socket}] Closing data Socket..."
       case socket do
         nil -> :ok
-        _ -> :ranch_tcp.close(socket)
+        _ -> :gen_tcp.close(socket)
       end
       message_server(server_pid, {:from_data_socket, :socket_close_ok})
       logger_debug "[DATA_SOCKET #{inspect socket}] Socket Closed."
