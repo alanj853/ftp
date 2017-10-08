@@ -120,7 +120,7 @@ defmodule FtpData do
     defp logger_debug(message, id \\ "") do
       case @debug do
           0 -> :ok
-          _ -> Logger.debug(message)
+          _ -> Enum.join([" [FTP]   ", message]) |> Logger.debug
       end
     end
 
