@@ -5,6 +5,7 @@ defmodule Ftp do
     
      use Application
         def start(_type, _args)  do
+            #start_server("192.168.1.12", 2121, "/home/user/var/system", "user1", "user1")
             start_server("127.0.0.1", 2121, "/home/user/var/system", "user1", "user1")
         end
     

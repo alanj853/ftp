@@ -9,7 +9,7 @@ defmodule FtpData do
     @debug 2
     
     def start_link() do
-        initial_state = %{ socket: nil, server_pid: nil}
+        initial_state = %{ socket: nil, server_pid: nil, pasv_mode: false}
         GenServer.start_link(__MODULE__, initial_state, name: @server_name)
     end
     
@@ -41,19 +41,23 @@ defmodule FtpData do
       GenServer.cast pid, {:list, path}
     end
 
-    def close_socket(pid) do
-      GenServer.call pid, :close_socket
+    def pasv(pid, ip, port) do
+      GenServer.cast pid, {:handle_pasv}
+    end 
+
+    def close_data_socket(pid) do
+      GenServer.call pid, :close_data_socket
     end
 
     def create_socket(pid, new_ip, new_port) do
       GenServer.call pid, {:create_socket, new_ip, new_port}
     end
 
-    def handle_call({:set_server_pid, new_server_pid}, _from, state=%{socket: socket, server_pid: server_pid}) do
+    def handle_call({:set_server_pid, new_server_pid}, _from, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}) do
       {:reply, state, %{socket: socket, server_pid: new_server_pid}}
     end
 
-    def handle_cast({:retr, file, new_offset} , state=%{socket: socket, server_pid: server_pid}) do
+    def handle_cast({:retr, file, new_offset} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}) do
       logger_debug "[DATA_SOCKET #{inspect socket}] Sending file..."
       case :ranch_tcp.sendfile(socket, file, new_offset, 0) do
         {:ok, exit_code} ->
@@ -64,12 +68,12 @@ defmodule FtpData do
           message_server(server_pid, {:from_data_socket, :socket_transfer_failed})
       end
       
-      :gen_tcp.close(socket)
-      new_state=%{socket: nil, server_pid: server_pid}
+      close_socket(socket)
+      new_state=%{socket: nil, server_pid: server_pid, pasv_mode: pasv_mode}
       {:noreply, new_state}
     end
 
-    def handle_cast({:stor, to_path} , state=%{socket: socket, server_pid: server_pid}) do
+    def handle_cast({:stor, to_path} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}) do
       logger_debug "[DATA_SOCKET #{inspect socket}] Receiving file..."
       {:ok, file} = receive_file(socket)
       logger_debug("This is packet: #{inspect file}")
@@ -78,39 +82,61 @@ defmodule FtpData do
       :file.write_file(to_charlist(to_path), file)
       logger_debug "[DATA_SOCKET #{inspect socket}] File received."
       message_server(server_pid, {:from_data_socket, :socket_transfer_ok})
-      :gen_tcp.close(socket)
-      new_state=%{socket: nil, server_pid: server_pid}
+      close_socket(socket)
+      new_state=%{socket: nil, server_pid: server_pid, pasv_mode: pasv_mode}
       {:noreply, new_state}
     end
 
-    def handle_cast({:list, file_info} , state=%{socket: socket, server_pid: server_pid}) do
+    def handle_cast({:list, file_info} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}) do
       logger_debug "[DATA_SOCKET #{inspect socket}] Sending result from LIST command..."
       :gen_tcp.send(socket, file_info)
       logger_debug "[DATA_SOCKET #{inspect socket}] Result from LIST command sent."
       message_server(server_pid, {:from_data_socket, :socket_transfer_ok})
-      :gen_tcp.close(socket)
-      new_state=%{socket: nil, server_pid: server_pid}
+      close_socket(socket)
+      new_state=%{socket: nil, server_pid: server_pid, pasv_mode: pasv_mode}
       {:noreply, new_state}
     end
 
-    def handle_call(:close_socket, _from, state=%{socket: socket, server_pid: server_pid}) do
+    def handle_call(:close_data_socket, _from, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}) do
       logger_debug "[DATA_SOCKET #{inspect socket}] Closing data Socket..."
-      case socket do
-        nil -> :ok
-        _ -> :gen_tcp.close(socket)
-      end
+      close_socket(socket)
       message_server(server_pid, {:from_data_socket, :socket_close_ok})
       logger_debug "[DATA_SOCKET #{inspect socket}] Socket Closed."
-      new_state = %{socket: nil, server_pid: server_pid}
+      new_state = %{socket: nil, server_pid: server_pid, pasv_mode: pasv_mode}
       {:reply, state, new_state}
     end
 
-    def handle_call({:create_socket, new_ip, new_port}, _from, state=%{socket: socket, server_pid: server_pid}) do
-      logger_debug "[DATA_SOCKET #{inspect socket}] Connecting  to #{inspect new_ip}:#{inspect new_port}"
-      {:ok, socket} = :gen_tcp.connect(new_ip, new_port ,[active: false, mode: :binary, packet: :raw]) 
-      message_server(server_pid, {:from_data_socket, :socket_create_ok}) 
-      new_state = %{socket: socket, server_pid: server_pid}
+    def handle_call({:create_socket, new_ip, new_port}, _from, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}) do
+      new_state = 
+      case pasv_mode do
+        true ->
+          logger_debug "[DATA_SOCKET #{inspect socket}] In passive mode, socket has already been created."
+          state
+        false ->
+          logger_debug "[DATA_SOCKET #{inspect socket}] Connecting  to #{inspect new_ip}:#{inspect new_port}"
+          {:ok, socket} = :gen_tcp.connect(new_ip, new_port ,[active: false, mode: :binary, packet: :raw]) 
+          message_server(server_pid, {:from_data_socket, :socket_create_ok})
+          %{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}
+      end
       {:reply, state, new_state}
+    end
+
+    def handle_cast({:handle_pasv, ip, port} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}) do
+      logger_debug "[DATA_SOCKET #{inspect socket}] Setting up listening data socket on request of PASV command..."
+      case :gen_tcp.listen(port, [ip: ip, active: false, backlog: 1024, nodelay: true, send_timeout: 30000, send_timeout_close: true]) do
+        {:ok, lsocket} ->
+          case :gen_tcp.accept(lsocket) do
+            {:ok, new_socket} ->
+              socket = new_socket
+              logger_debug "[DATA_SOCKET #{inspect new_socket}] Got Connection"
+            {:error, reason} -> logger_debug "Got error while listening #{reason}"
+        end
+        {:error, reason} -> 
+            logger_debug "Error setting up listen socket. Reason: #{reason}"
+            nil
+      end
+      new_state=%{socket: socket, server_pid: server_pid, pasv_mode: true}
+      {:noreply, new_state}
     end
 
     defp message_server(pid, message) do
@@ -137,5 +163,17 @@ defmodule FtpData do
               {:ok, packet}
       end
     end
+
+  defp close_socket(socket) do
+      case (socket == nil) do
+          true -> logger_debug "Socket #{inspect socket} already closed."
+          false ->
+              case :gen_tcp.shutdown(socket, :read_write) do
+                  :ok -> logger_debug "Socket #{inspect socket} successfully closed."
+                  {:error, closed} -> logger_debug "Socket #{inspect socket} already closed."
+                  {:error, other_reason} -> logger_debug "Error while attempting to close socket #{inspect socket}. Reason: #{other_reason}."
+              end
+      end
+  end
 
 end

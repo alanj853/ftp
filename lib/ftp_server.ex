@@ -57,7 +57,7 @@ defmodule FtpServer do
     use GenServer
 
     def start_link(args = %{ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port}) do
-        initial_state = %{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: nil, username: username, password: password, ip: ip, port: port}
+        initial_state = %{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, listen_socket: nil, socket: nil, username: username, password: password, ip: ip, port: port}
         GenServer.start_link(__MODULE__, initial_state, name: @server_name)
     end
 
@@ -85,7 +85,7 @@ defmodule FtpServer do
         {:reply, state, state}
     end
 
-    def handle_info(:listen, state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: old_socket, username: username, password: password, ip: ip, port: port}) do
+    def handle_info(:listen, state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, listen_socket: old_listen_socket, socket: old_socket, username: username, password: password, ip: ip, port: port}) do
         logger_debug "Listening..."
         lsocket = 
         case :gen_tcp.listen(port, [ip: ip, active: false, backlog: 1024, nodelay: true, send_timeout: 30000, send_timeout_close: true]) do
@@ -114,7 +114,7 @@ defmodule FtpServer do
                                 #     :ok -> logger_debug "Socket successfully set to active"
                                 #     {:error, reason} -> logger_debug "Socket not set to active. Reason #{reason}"
                                 # end
-                                new_state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: new_socket, username: username, password: password, ip: ip, port: port}
+                                new_state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, listen_socket: lsocket, socket: new_socket, username: username, password: password, ip: ip, port: port}
                                 Kernel.send(ftp_info_pid, {:set_server_state, new_state} )
                             false ->
                                 logger_debug("Invalid username or password\n")
@@ -135,7 +135,7 @@ defmodule FtpServer do
     def handle_info({:from_data_socket, msg},state) do
         socket = Map.get(state, :socket)
         logger_debug "This is msg: #{inspect msg}"
-        x = case msg do
+        case msg do
             :socket_transfer_ok -> send_message(@ftp_TRANSFEROK, "Transfer Complete", socket)
             :socket_transfer_failed -> send_message(@ftp_FILEFAIL, "Transfer Failed", socket)
             :socket_close_ok -> 1#send_message(@ftp_TRANSFEROK, "Transfer Complete", socket)
@@ -158,15 +158,18 @@ defmodule FtpServer do
 
     def handle_info({:tcp_closed, socket }, state) do
         logger_debug "Socket #{inspect socket} closed."
+        listen_socket = Map.get(state, :listen_socket)
         close_socket(socket)
+        close_socket(listen_socket)
         restart_server()
         #start_listener(state) # restart socket again to be ready for a new connection
         {:noreply, state}
     end
     
-    def terminate(reason, state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, socket: socket, username: username, password: password, ip: ip, port: port}) do
+    def terminate(reason, state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, listen_socket: listen_socket, socket: socket, username: username, password: password, ip: ip, port: port}) do
         Logger.info "This is terminiate reason: START\n#{inspect reason}\nEND"
         close_socket(socket) # make sure socket is closed
+        close_socket(listen_socket)
     end
 
 
@@ -181,15 +184,14 @@ defmodule FtpServer do
             String.contains?(command, "LIST") == true -> handle_list(socket, command, state)
             String.contains?(command, "TYPE") == true -> handle_type(socket, command, state)
             String.contains?(command, "STRU") == true -> handle_stru(socket, command, state)
-            # String.contains?(command, "USER") == true -> handle_user(socket, command, state)
             String.contains?(command, "QUIT") == true -> handle_quit(socket, command, state)
             String.contains?(command, "PORT") == true -> handle_port(socket, command, state)
             String.contains?(command, "RETR") == true -> handle_retr(socket, command, state)
             String.contains?(command, "STOR") == true -> handle_stor(socket, command, state)
             String.contains?(command, "NOOP") == true -> handle_noop(socket, command, state)
-            # String.contains?(command, "DELE") == true -> handle_dele(socket, command, state)
-            # String.contains?(command, "MKD") == true -> handle_mkd(socket, command, state)
-            # String.contains?(command, "RMD") == true -> handle_rmd(socket, command, state)
+            String.contains?(command, "DELE") == true -> handle_dele(socket, command, state)
+            String.contains?(command, "MKD") == true -> handle_mkd(socket, command, state)
+            String.contains?(command, "RMD") == true -> handle_rmd(socket, command, state)
             String.contains?(command, "SIZE") == true -> handle_size(socket, command, state)
             String.contains?(command, "PASV") == true -> handle_pasv(socket, command, state)
             String.contains?(command, "SYST") == true -> handle_syst(socket, command, state)
@@ -208,6 +210,64 @@ defmodule FtpServer do
         end
     end
 
+    def handle_dele(socket, command, state) do
+        ftp_info_pid = Map.get(state, :ftp_info_pid)
+        ftp_data_pid = Map.get(state, :ftp_data_pid)
+        "DELE " <> path = command |> String.trim()
+        %{root_dir: root_dir, server_cd: current_server_working_directory , client_cd: current_client_working_directory, data_ip: ip, data_port: port, type: type, offset: offset} = FtpInfo.get_state ftp_info_pid
+        working_path = determine_path(root_dir, current_client_working_directory, path)
+        path_exists = File.exists?(working_path)
+        is_directory = File.dir?(working_path)
+        have_read_access = allowed_to_read(working_path, state)
+
+        cond do
+            is_directory == true -> {@ftp_FILEFAIL, "Current path '#{path}' is a directory."}
+            path_exists == false -> {@ftp_FILEFAIL, "Current directory '#{path}' does not exist."}
+            have_read_access == false -> {@ftp_NOPERM, "You don't have permission to delete this file ('#{path}')."}
+            true ->
+                File.rm(working_path)
+                {@ftp_DELEOK, "Successfully deleted file '#{path}'"}
+        end
+    end
+
+    def handle_rmd(socket, command, state) do
+        ftp_info_pid = Map.get(state, :ftp_info_pid)
+        ftp_data_pid = Map.get(state, :ftp_data_pid)
+        "RMD " <> path = command |> String.trim()
+        %{root_dir: root_dir, server_cd: current_server_working_directory , client_cd: current_client_working_directory, data_ip: ip, data_port: port, type: type, offset: offset} = FtpInfo.get_state ftp_info_pid
+        working_path = determine_path(root_dir, current_client_working_directory, path)
+        path_exists = File.exists?(working_path)
+        is_directory = File.dir?(working_path)
+        have_read_access = allowed_to_read(working_path, state)
+
+        cond do
+            is_directory == false -> {@ftp_FILEFAIL, "Current path '#{path}' is not a directory."}
+            path_exists == false -> {@ftp_FILEFAIL, "Current directory '#{path}' does not exist."}
+            have_read_access == false -> {@ftp_NOPERM, "You don't have permission to delete this file ('#{path}')."}
+            true ->
+                File.rmdir(working_path)
+                {@ftp_RMDIROK, "Successfully deleted directory '#{path}'"}
+        end
+    end
+
+    def handle_mkd(socket, command, state) do
+        ftp_info_pid = Map.get(state, :ftp_info_pid)
+        ftp_data_pid = Map.get(state, :ftp_data_pid)
+        "MKD " <> path = command |> String.trim()
+        %{root_dir: root_dir, server_cd: current_server_working_directory , client_cd: current_client_working_directory, data_ip: ip, data_port: port, type: type, offset: offset} = FtpInfo.get_state ftp_info_pid
+        working_path = determine_path(root_dir, current_client_working_directory, path)
+        path_exists = File.exists?(working_path)
+        have_read_access = allowed_to_read(working_path, state)
+
+        cond do
+            path_exists == true -> {@ftp_FILEFAIL, "Current directory '#{path}' already exists."}
+            have_read_access == false -> {@ftp_NOPERM, "You don't have permission to create this directory ('#{path}')."}
+            true ->
+                File.mkdir(working_path)
+                {@ftp_MKDIROK, "Successfully created directory '#{path}'"}
+        end
+    end
+
     def handle_noop(socket, command, state) do
         {@ftp_NOOPOK, "No Operation"}
     end
@@ -217,12 +277,18 @@ defmodule FtpServer do
     end
 
     def handle_pasv(socket, command, state) do
-        {@ftp_PASVOK, "Entering Passive Mode"}
+        ftp_data_pid = Map.get(state, :ftp_data_pid)
+        p1 = :random.uniform(250)
+        p2 = :random.uniform(250)
+        port_number = p1*256 + p2
+        ip = to_charlist("127.0.0.1")
+        FtpData.pasv(ftp_data_pid, ip, port_number)
+        {@ftp_PASVOK, "Entering Passive Mode (127,0,0,1,#{inspect p1},#{inspect p2})."}
     end
 
     def handle_abor(socket, command, state) do
         pid = Map.get(state, :ftp_data_pid)
-        FtpData.close_socket pid
+        FtpData.close_data_socket pid
         {@ftp_ABORTOK, "Abort Command Successful"}
     end
 
@@ -388,6 +454,11 @@ defmodule FtpServer do
         path = determine_path(root_directory, current_client_working_directory, path)
         logger_debug "This is working path on server: #{path}"
         new_client_working_directory = String.trim_leading(path, root_directory)
+        new_client_working_directory = 
+        case new_client_working_directory do
+            "" -> "/"
+            _ -> new_client_working_directory
+        end
         
         path_exists = File.exists?(path)
         is_directory = File.dir?(path)
@@ -637,12 +708,12 @@ defmodule FtpServer do
 
     defp close_socket(socket) do
         case (socket == nil) do
-            true -> logger_debug "Socket already closed."
+            true -> logger_debug "Socket #{inspect socket} already closed."
             false ->
                 case :gen_tcp.shutdown(socket, :read_write) do
-                    :ok -> logger_debug "Socket successfully closed."
-                    {:error, closed} -> logger_debug "Socket already closed."
-                    {:error, other_reason} -> logger_debug "Error while attempting to close socket. Reason: #{other_reason}."
+                    :ok -> logger_debug "Socket #{inspect socket} successfully closed."
+                    {:error, closed} -> logger_debug "Socket #{inspect socket} already closed."
+                    {:error, other_reason} -> logger_debug "Error while attempting to close socket #{inspect socket}. Reason: #{other_reason}."
                 end
         end
     end
