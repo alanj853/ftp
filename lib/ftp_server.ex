@@ -37,6 +37,7 @@ defmodule FtpServer do
     @ftp_BADUSER_PASS        430
     @ftp_BADSENDCONN         425
     @ftp_BADSENDNET          426
+    @ftp_TRANSFERABORTED     426
     @ftp_BADSENDFILE         451
     @ftp_BADCMD              500
     @ftp_COMMANDNOTIMPL      502
@@ -56,16 +57,19 @@ defmodule FtpServer do
     require Logger
     use GenServer
 
-    def start_link(args = %{ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port}) do
-        initial_state = %{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, listen_socket: nil, socket: nil, username: username, password: password, ip: ip, port: port}
-        GenServer.start_link(__MODULE__, initial_state, name: @server_name)
+    def start_link(ref, socket, transport, opts = [%{ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port}]) do
+        initial_state = %{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, listen_socket: ref, socket: socket, username: username, password: password, ip: ip, port: port}
+        #GenServer.start_link(__MODULE__, initial_state, name: @server_name)
+        pid  = :proc_lib.spawn_link(__MODULE__, :init, [ref, socket, transport, initial_state])
+        {:ok, pid}
     end
 
-    def init(state) do
+    def init(ref, socket, transport, state) do
         ftp_data_pid = Map.get(state, :ftp_data_pid)
         FtpData.get_state ftp_data_pid
         FtpData.set_server_pid(ftp_data_pid, self())
-        start_listener()
+        start_listener(ref,socket, state)
+        :gen_server.enter_loop(__MODULE__, [], state, socket, transport)
         {:ok, state}
     end
 
@@ -86,14 +90,19 @@ defmodule FtpServer do
     end
 
     def handle_info(:listen, state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, listen_socket: old_listen_socket, socket: old_socket, username: username, password: password, ip: ip, port: port}) do
-        logger_debug "Listening..."
-        lsocket = 
-        case :gen_tcp.listen(port, [ip: ip, active: false, backlog: 1024, nodelay: true, send_timeout: 30000, send_timeout_close: true]) do
+        logger_debug "Listening on #{inspect ip}..."
+         
+
+        #case :gen_tcp.listen(port, [ip: ip, active: false, backlog: 1024, nodelay: true, send_timeout: 30000, send_timeout_close: true, reuseaddr: true, exit_on_close: true]) do
+        lsocket =
+        case :ranch.start_listener(:mylistener, 10, :ranch_tcp, [port: 2121, ip: ip], FtpServer, []) do
             {:ok, lsocket} -> lsocket
             {:error, reason} -> 
                 logger_debug "Error setting up listen socket. Reason: #{reason}"
                 nil
         end
+
+        IO.puts "This is lsocket: #{inspect lsocket}"
 
         case (lsocket == nil) do
             false ->
@@ -119,25 +128,31 @@ defmodule FtpServer do
                             false ->
                                 logger_debug("Invalid username or password\n")
                                 send_message(@ftp_LOGINERR, "Invalid username or password", new_socket)
-                                close_socket(new_socket)
-                                close_socket(lsocket)
-                                restart_server()
+                                restart_server(state)
                         end
 
                     {:error, reason} -> logger_debug "Got error while listening #{reason}"
                 end
             true ->
-                restart_server()
+                restart_server(state)
         end
         {:noreply, state}
     end
 
     def handle_info({:from_data_socket, msg},state) do
         socket = Map.get(state, :socket)
+        ftp_data_pid = Map.get(state, :ftp_data_pid)
         logger_debug "This is msg: #{inspect msg}"
         case msg do
             :socket_transfer_ok -> send_message(@ftp_TRANSFEROK, "Transfer Complete", socket)
-            :socket_transfer_failed -> send_message(@ftp_FILEFAIL, "Transfer Failed", socket)
+            :socket_transfer_failed -> 
+                was_aborted = FtpData.get_state(ftp_data_pid) |> Map.get(:aborted)
+                case was_aborted do
+                    true ->
+                        send_message(@ftp_TRANSFERABORTED, "Connection closed; transfer aborted.", socket)
+                        restart_server(state)
+                    false -> send_message(@ftp_FILEFAIL, "Transfer Failed", socket)
+                end
             :socket_close_ok -> 1#send_message(@ftp_TRANSFEROK, "Transfer Complete", socket)
             :socket_create_ok -> 2#send_message(@ftp_TRANSFEROK, "Transfer Complete", socket)
             _ -> :ok
@@ -159,15 +174,13 @@ defmodule FtpServer do
     def handle_info({:tcp_closed, socket }, state) do
         logger_debug "Socket #{inspect socket} closed."
         listen_socket = Map.get(state, :listen_socket)
-        close_socket(socket)
-        close_socket(listen_socket)
-        restart_server()
+        restart_server(state)
         #start_listener(state) # restart socket again to be ready for a new connection
         {:noreply, state}
     end
     
     def terminate(reason, state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, listen_socket: listen_socket, socket: socket, username: username, password: password, ip: ip, port: port}) do
-        Logger.info "This is terminiate reason: START\n#{inspect reason}\nEND"
+        Logger.info "This is terminiate reason:\nSTART\n#{inspect reason}\nEND"
         close_socket(socket) # make sure socket is closed
         close_socket(listen_socket)
     end
@@ -288,7 +301,7 @@ defmodule FtpServer do
 
     def handle_abor(socket, command, state) do
         pid = Map.get(state, :ftp_data_pid)
-        FtpData.close_data_socket pid
+        FtpData.close_data_socket(pid, :abort)
         {@ftp_ABORTOK, "Abort Command Successful"}
     end
 
@@ -479,14 +492,41 @@ defmodule FtpServer do
     ## HELPER FUNCTIONS
     
     
-    defp start_listener() do
-        Kernel.send(self(), :listen)
+    defp start_listener(listener_pid, socket, state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, listen_socket: lsocket, socket: socket, username: username, password: password, ip: ip, port: port}) do
+        IO.puts "Thiis is pid #{inspect listener_pid}"
+        :ranch_tcp.accept_ack(listener_pid)
+        logger_debug "Got Connection"
+        send_message(@ftp_OK, "Welcome to FTP Server", socket, false)
+
+        case :inet.setopts(socket, [active: true]) do
+            :ok -> logger_debug "Socket successfully set to active"
+            {:error, reason} -> logger_debug "Socket not set to active. Reason #{reason}"
+        end
+        sucessful_authentication = auth(socket, username, password)
+        case sucessful_authentication do
+            true ->
+                logger_debug "Valid Login Credentials"
+                send_message(@ftp_LOGINOK, "User Authenticated", socket)
+                new_state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, listen_socket: lsocket, socket: socket, username: username, password: password, ip: ip, port: port}
+                Kernel.send(ftp_info_pid, {:set_server_state, new_state} )
+            false ->
+                logger_debug("Invalid username or password\n")
+                send_message(@ftp_LOGINERR, "Invalid username or password", socket)
+                restart_server(state)
+        end
     end
 
-    defp restart_server() do
+    defp restart_server(state) do
+        comm_socket = Map.get(state, :socket)
+        listen_socket = Map.get(state, :listen_socket)
         logger_debug("Restarting Server in #{inspect @restart_time} ms...\n")
+        close_socket(comm_socket)
+        #close_socket(listen_socket)
+        :ranch.stop_listener(:mylistener)
+        Port.close(comm_socket)
+        Port.close(listen_socket)
         :timer.sleep(@restart_time) ## allow time for sockets to close properly.
-        start_listener()
+        #start_listener()
     end
 
     defp valid_username(expected_username, username) do

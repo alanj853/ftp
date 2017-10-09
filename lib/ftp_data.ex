@@ -9,7 +9,7 @@ defmodule FtpData do
     @debug 2
     
     def start_link() do
-        initial_state = %{ socket: nil, server_pid: nil, pasv_mode: false}
+        initial_state = %{ socket: nil, server_pid: nil, pasv_mode: false, aborted: false}
         GenServer.start_link(__MODULE__, initial_state, name: @server_name)
     end
     
@@ -19,6 +19,10 @@ defmodule FtpData do
 
     def get_state(pid) do
         GenServer.call pid, :get_state
+    end
+
+    def set_state(pid, state) do
+      GenServer.call pid, {:set_state, state}
     end
 
     def set_server_pid(pid, server_pid) do
@@ -42,22 +46,30 @@ defmodule FtpData do
     end
 
     def pasv(pid, ip, port) do
-      GenServer.cast pid, {:handle_pasv}
+      GenServer.cast pid, {:handle_pasv, ip, port}
     end 
 
-    def close_data_socket(pid) do
-      GenServer.call pid, :close_data_socket
+    def close_data_socket(pid, reason \\ "") do
+      GenServer.call pid, {:close_data_socket, reason}
     end
 
     def create_socket(pid, new_ip, new_port) do
       GenServer.call pid, {:create_socket, new_ip, new_port}
     end
 
-    def handle_call({:set_server_pid, new_server_pid}, _from, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}) do
-      {:reply, state, %{socket: socket, server_pid: new_server_pid}}
+    def handle_call({:set_state, new_state}, _from, state) do
+      {:reply, state, new_state}
     end
 
-    def handle_cast({:retr, file, new_offset} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}) do
+    def handle_call({:set_server_pid, new_server_pid}, _from, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
+      {:reply, state, %{socket: socket, server_pid: new_server_pid, pasv_mode: pasv_mode, aborted: aborted}}
+    end
+
+    def handle_call({:set_server_pid, new_server_pid}, _from, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
+      {:reply, state, %{socket: socket, server_pid: new_server_pid, pasv_mode: pasv_mode, aborted: aborted}}
+    end
+
+    def handle_cast({:retr, file, new_offset} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
       logger_debug "[DATA_SOCKET #{inspect socket}] Sending file..."
       case :ranch_tcp.sendfile(socket, file, new_offset, 0) do
         {:ok, exit_code} ->
@@ -69,11 +81,11 @@ defmodule FtpData do
       end
       
       close_socket(socket)
-      new_state=%{socket: nil, server_pid: server_pid, pasv_mode: pasv_mode}
+      new_state=%{socket: nil, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}
       {:noreply, new_state}
     end
 
-    def handle_cast({:stor, to_path} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}) do
+    def handle_cast({:stor, to_path} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
       logger_debug "[DATA_SOCKET #{inspect socket}] Receiving file..."
       {:ok, file} = receive_file(socket)
       logger_debug("This is packet: #{inspect file}")
@@ -83,30 +95,39 @@ defmodule FtpData do
       logger_debug "[DATA_SOCKET #{inspect socket}] File received."
       message_server(server_pid, {:from_data_socket, :socket_transfer_ok})
       close_socket(socket)
-      new_state=%{socket: nil, server_pid: server_pid, pasv_mode: pasv_mode}
+      new_state=%{socket: nil, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}
       {:noreply, new_state}
     end
 
-    def handle_cast({:list, file_info} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}) do
+    def handle_cast({:list, file_info} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
       logger_debug "[DATA_SOCKET #{inspect socket}] Sending result from LIST command..."
       :gen_tcp.send(socket, file_info)
       logger_debug "[DATA_SOCKET #{inspect socket}] Result from LIST command sent."
       message_server(server_pid, {:from_data_socket, :socket_transfer_ok})
       close_socket(socket)
-      new_state=%{socket: nil, server_pid: server_pid, pasv_mode: pasv_mode}
+      new_state=%{socket: nil, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}
       {:noreply, new_state}
     end
 
-    def handle_call(:close_data_socket, _from, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}) do
+    def handle_call(:close_data_socket, _from, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
       logger_debug "[DATA_SOCKET #{inspect socket}] Closing data Socket..."
       close_socket(socket)
       message_server(server_pid, {:from_data_socket, :socket_close_ok})
       logger_debug "[DATA_SOCKET #{inspect socket}] Socket Closed."
-      new_state = %{socket: nil, server_pid: server_pid, pasv_mode: pasv_mode}
+      new_state = %{socket: nil, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}
       {:reply, state, new_state}
     end
 
-    def handle_call({:create_socket, new_ip, new_port}, _from, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}) do
+    def handle_call({:close_data_socket, :abort}, _from, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
+      logger_debug "[DATA_SOCKET #{inspect socket}] Closing data Socket (due to abort command)..."
+      close_socket(socket)
+      message_server(server_pid, {:from_data_socket, :socket_close_ok})
+      logger_debug "[DATA_SOCKET #{inspect socket}] Socket Closed."
+      new_state = %{socket: nil, server_pid: server_pid, pasv_mode: pasv_mode, aborted: true}
+      {:reply, state, new_state}
+    end
+
+    def handle_call({:create_socket, new_ip, new_port}, _from, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
       new_state = 
       case pasv_mode do
         true ->
@@ -116,12 +137,12 @@ defmodule FtpData do
           logger_debug "[DATA_SOCKET #{inspect socket}] Connecting  to #{inspect new_ip}:#{inspect new_port}"
           {:ok, socket} = :gen_tcp.connect(new_ip, new_port ,[active: false, mode: :binary, packet: :raw]) 
           message_server(server_pid, {:from_data_socket, :socket_create_ok})
-          %{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}
+          %{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}
       end
       {:reply, state, new_state}
     end
 
-    def handle_cast({:handle_pasv, ip, port} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode}) do
+    def handle_cast({:handle_pasv, ip, port} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
       logger_debug "[DATA_SOCKET #{inspect socket}] Setting up listening data socket on request of PASV command..."
       case :gen_tcp.listen(port, [ip: ip, active: false, backlog: 1024, nodelay: true, send_timeout: 30000, send_timeout_close: true]) do
         {:ok, lsocket} ->
@@ -135,7 +156,7 @@ defmodule FtpData do
             logger_debug "Error setting up listen socket. Reason: #{reason}"
             nil
       end
-      new_state=%{socket: socket, server_pid: server_pid, pasv_mode: true}
+      new_state=%{socket: socket, server_pid: server_pid, pasv_mode: true, aborted: false}
       {:noreply, new_state}
     end
 
