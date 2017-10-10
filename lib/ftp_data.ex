@@ -49,7 +49,11 @@ defmodule FtpData do
       GenServer.cast pid, {:handle_pasv, ip, port}
     end 
 
-    def close_data_socket(pid, reason \\ "") do
+    def close_data_socket(pid) do
+      GenServer.call pid, {:close_data_socket}
+    end
+
+    def close_data_socket(pid, reason) do
       GenServer.call pid, {:close_data_socket, reason}
     end
 
@@ -80,8 +84,7 @@ defmodule FtpData do
           message_server(server_pid, {:from_data_socket, :socket_transfer_failed})
       end
       
-      close_socket(socket)
-      new_state=%{socket: nil, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}
+      new_state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}
       {:noreply, new_state}
     end
 
@@ -121,8 +124,6 @@ defmodule FtpData do
     def handle_call({:close_data_socket, :abort}, _from, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
       logger_debug "[DATA_SOCKET #{inspect socket}] Closing data Socket (due to abort command)..."
       close_socket(socket)
-      message_server(server_pid, {:from_data_socket, :socket_close_ok})
-      logger_debug "[DATA_SOCKET #{inspect socket}] Socket Closed."
       new_state = %{socket: nil, server_pid: server_pid, pasv_mode: pasv_mode, aborted: true}
       {:reply, state, new_state}
     end
@@ -153,7 +154,7 @@ defmodule FtpData do
             {:error, reason} -> logger_debug "Got error while listening #{reason}"
         end
         {:error, reason} -> 
-            logger_debug "Error setting up listen socket. Reason: #{reason}"
+            logger_debug "[DATA_SOCKET #{inspect socket}] Error setting up listen socket. Reason: #{reason}"
             nil
       end
       new_state=%{socket: socket, server_pid: server_pid, pasv_mode: true, aborted: false}
@@ -187,12 +188,12 @@ defmodule FtpData do
 
   defp close_socket(socket) do
       case (socket == nil) do
-          true -> logger_debug "Socket #{inspect socket} already closed."
+          true -> logger_debug "[DATA_SOCKET #{inspect socket}] Socket #{inspect socket} already closed."
           false ->
-              case :gen_tcp.shutdown(socket, :read_write) do
-                  :ok -> logger_debug "Socket #{inspect socket} successfully closed."
-                  {:error, closed} -> logger_debug "Socket #{inspect socket} already closed."
-                  {:error, other_reason} -> logger_debug "Error while attempting to close socket #{inspect socket}. Reason: #{other_reason}."
+              case :ranch_tcp.shutdown(socket, :read_write) do
+                  :ok -> logger_debug "[DATA_SOCKET #{inspect socket}] Socket #{inspect socket} successfully closed."
+                  {:error, closed} -> logger_debug "[DATA_SOCKET #{inspect socket}] Socket #{inspect socket} already closed."
+                  {:error, other_reason} -> logger_debug "[DATA_SOCKET #{inspect socket}] Error while attempting to close socket #{inspect socket}. Reason: #{other_reason}."
               end
       end
   end

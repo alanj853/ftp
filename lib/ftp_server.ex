@@ -58,16 +58,39 @@ defmodule FtpServer do
     use GenServer
 
     def start_link(ref, socket, transport, opts = [%{ftp_data_pid: ftp_data_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port, debug: debug, timeout: timeout, restart_time: restart_time}]) do
-        pid  = :proc_lib.spawn_link(__MODULE__, :init, [ref, socket, transport])
         initial_state = %{ftp_data_pid: ftp_data_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port, debug: debug, timeout: timeout, restart_time: restart_time, listener_ref: ref, control_socket: socket, transport: transport}
-        setup_dd(initial_state)
+        pid  = :proc_lib.spawn_link(__MODULE__, :init, [ref, socket, transport, initial_state])
         {:ok, pid}
     end
 
-    def init(ref, socket, transport) do
-        start_listener(ref,socket)
+    def init(ref, socket, transport, state) do
+        start_listener(ref,socket, state)
         :gen_server.enter_loop(__MODULE__, [], [])
         {:ok, %{}}
+    end   
+    
+    defp start_listener(listener_pid, socket, state) do
+        setup_dd(state)
+        FtpData.set_server_pid(get(:ftp_data_pid), self())
+        :ranch.accept_ack(listener_pid)
+        logger_debug "Got Connection"
+        send_message(@ftp_OK, "Welcome to FTP Server", false)
+
+        case :ranch_tcp.setopts(socket, [active: true]) do
+            :ok -> logger_debug "Socket successfully set to active"
+            {:error, reason} -> logger_debug "Socket not set to active. Reason #{reason}"
+        end
+        
+        sucessful_authentication = auth(socket)
+        case sucessful_authentication do
+            true ->
+                logger_debug "Valid Login Credentials"
+                send_message(@ftp_LOGINOK, "User Authenticated")
+            false ->
+                logger_debug("Invalid username or password\n")
+                send_message(@ftp_LOGINERR, "Invalid username or password")
+                close_socket(socket)
+        end
     end
 
     def set_state(state) do
@@ -87,7 +110,7 @@ defmodule FtpServer do
     end
 
     def handle_info({:from_data_socket, msg},state) do
-        socket = get(:socket)
+        socket = get(:control_socket)
         ftp_data_pid = get(:ftp_data_pid)
         logger_debug "This is msg: #{inspect msg}"
         case msg do
@@ -95,9 +118,9 @@ defmodule FtpServer do
             :socket_transfer_failed -> 
                 was_aborted = FtpData.get_state(ftp_data_pid) |> Map.get(:aborted)
                 case was_aborted do
-                    true ->
+                    true -> 
                         send_message(@ftp_TRANSFERABORTED, "Connection closed; transfer aborted.")
-                        restart_server()
+                        send_message(@ftp_ABORTOK, "ABOR command successful")
                     false -> send_message(@ftp_FILEFAIL, "Transfer Failed")
                 end
             :socket_close_ok -> 1#send_message(@ftp_TRANSFEROK, "Transfer Complete", socket)
@@ -107,29 +130,36 @@ defmodule FtpServer do
         {:noreply, state}
     end
 
-    def handle_info({:tcp, pid, packet }, state) do
-        socket = get(:socket)
-        case socket do
-            nil -> :ok
-            _ ->
+    def handle_info({:tcp, socket, packet }, state) do
+        control_socket = get(:control_socket)
+        data_socket = get(:data_socket)
+        cond do
+            (socket == control_socket) -> 
                 logger_debug "got command: #{packet}"
                 handle_command(packet)
+            (socket == data_socket ) ->
+                logger_debug "got command for data socket: #{packet}"
+            true ->
+                logger_debug "got command from other socket #{socket}"
         end
         {:noreply, state}
     end
 
     def handle_info({:tcp_closed, socket }, state) do
-        logger_debug "Socket #{inspect socket} closed."
-        listen_socket = get(:listen_socket)
-        restart_server()
-        #start_listener(state) # restart socket again to be ready for a new connection
+        logger_debug "Socket #{inspect socket} closed. Connection to client ended"
         {:noreply, state}
     end
     
-    def terminate(reason, state=%{root_dir: root_dir, ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, listen_socket: listen_socket, socket: socket, username: username, password: password, ip: ip, port: port}) do
+    def terminate(reason, state) do
         Logger.info "This is terminiate reason:\nSTART\n#{inspect reason}\nEND"
-        close_socket(socket) # make sure socket is closed
-        close_socket(listen_socket)
+        #close_socket(socket) # make sure socket is closed
+        #close_socket(listen_socket)
+    end
+
+    def terminate({:timeout, _}, state) do
+        Logger.info "Terminating from timeout"
+        #close_socket(socket) # make sure socket is closed
+        #close_socket(listen_socket)
     end
 
 
@@ -242,15 +272,17 @@ defmodule FtpServer do
         p1 = :random.uniform(250)
         p2 = :random.uniform(250)
         port_number = p1*256 + p2
-        ip = to_charlist("127.0.0.1")
+        ip = to_charlist("10.216.251.72")
         FtpData.pasv(ftp_data_pid, ip, port_number)
-        {@ftp_PASVOK, "Entering Passive Mode (127,0,0,1,#{inspect p1},#{inspect p2})."}
+        logger_debug "This is control ip: #{inspect get(:control_ip)}"
+        {@ftp_PASVOK, "Entering Passive Mode (10,216,251,72,#{inspect p1},#{inspect p2})."}
     end
 
     def handle_abor(command) do
         pid = get(:ftp_data_pid)
         FtpData.close_data_socket(pid, :abort)
-        {@ftp_ABORTOK, "Abort Command Successful"}
+        {0, :ok}
+        #{@ftp_ABORTOK, "Abort Command Successful"}
     end
 
     def handle_type(command) do
@@ -414,15 +446,15 @@ defmodule FtpServer do
     end
 
     def handle_pwd(command) do
-        working_directory =  get(:client_cd)
-        {@ftp_PWDOK, "\"#{working_directory}\""}
+        logger_debug "Server CD: #{get(:server_cd)}"
+        {@ftp_PWDOK, "\"#{get(:client_cd)}\""}
     end
 
     def handle_cwd(command) do
         "CWD " <> path = command |> String.trim()
 
         current_client_working_directory = get(:client_cd)
-        root_directory = Map.get(:root_dir)
+        root_directory = get(:root_dir)
 
         working_path = determine_path(root_directory, current_client_working_directory, path)
         logger_debug "This is working path on server: #{working_path}"
@@ -450,36 +482,16 @@ defmodule FtpServer do
 
 
     ## HELPER FUNCTIONS
-    
-    
-    defp start_listener(listener_pid, socket) do
-        :ranch.accept_ack(listener_pid)
-        logger_debug "Got Connection"
-        send_message(@ftp_OK, "Welcome to FTP Server", false)
 
-        case :inet.setopts(socket, [active: true]) do
-            :ok -> logger_debug "Socket successfully set to active"
-            {:error, reason} -> logger_debug "Socket not set to active. Reason #{reason}"
-        end
-        sucessful_authentication = auth(socket)
-        case sucessful_authentication do
-            true ->
-                logger_debug "Valid Login Credentials"
-                send_message(@ftp_LOGINOK, "User Authenticated")
-            false ->
-                logger_debug("Invalid username or password\n")
-                send_message(@ftp_LOGINERR, "Invalid username or password")
-                restart_server()
-        end
-    end
 
     defp restart_server() do
-        comm_socket = get(:socket)
+        comm_socket = get(:control_socket)
         listen_socket = get(:listen_socket)
+        ref = get(:listener_ref)
         logger_debug("Restarting Server in #{inspect @restart_time} ms...\n")
         close_socket(comm_socket)
         #close_socket(listen_socket)
-        :ranch.stop_listener(:mylistener)
+        :ranch.stop_listener(ref)
         Port.close(comm_socket)
         Port.close(listen_socket)
         :timer.sleep(@restart_time) ## allow time for sockets to close properly.
@@ -511,13 +523,12 @@ defmodule FtpServer do
         socket = get(:control_socket)
         message = Enum.join([to_string(code), " " , msg, "\r\n"])
         case @debug do
-            2 ->
-                logger_debug("Sending this message to client: #{message}. Socket = #{inspect socket}")
+            2 ->:ok #logger_debug("Sending this message to client: #{message}. Socket = #{inspect socket}")
             _ -> :ok
         end
 
         ## temporarily set to false so we can send messages
-        :inet.setopts(socket, [active: false])
+        :ranch_tcp.setopts(socket, [active: false])
 
         # case :inet.getopts(socket, [:active]) do
         #     {:ok, opts} -> logger_debug "This is socket now: #{inspect opts}"
@@ -533,11 +544,11 @@ defmodule FtpServer do
         case @debug do
             2 ->
                 logger_debug("FROM SERVER #{message}")
-                logger_debug(send_status)
+                #logger_debug(send_status)
             _ -> :ok
         end
         
-        :inet.setopts(socket, [active: socket_mode])
+        :ranch_tcp.setopts(socket, [active: socket_mode])
 
         # case :inet.getopts(socket, [:active]) do
         #     {:ok, opts} -> logger_debug "This is socket now: #{inspect opts}"
@@ -727,7 +738,7 @@ defmodule FtpServer do
             data_ip: nil,
             data_port: nil,
             client_cd: "/",
-            server_cd: "/",
+            server_cd: Map.get(args, :root_dir),
             file_offset: 0,
             transfer_type: nil,
             restart_time: Map.get(args, :restart_time),
