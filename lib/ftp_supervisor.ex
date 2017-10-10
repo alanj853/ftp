@@ -12,8 +12,7 @@ defmodule FtpSupervisor do
         rw_dirs = []
         other_config = %{ro_dirs: ro_dirs, rw_dir: rw_dirs}
         {:ok, ftp_data_pid} = Supervisor.start_child(supervisor, worker(FtpData, []))
-        {:ok, ftp_info_pid} = Supervisor.start_child(supervisor, worker(FtpInfo, [root_directory]))
-        {:ok, ftp_sub_sup_pid} = Supervisor.start_child(supervisor, supervisor(FtpSubSupervisor, [%{ftp_data_pid: ftp_data_pid, ftp_info_pid: ftp_info_pid, root_dir: root_directory, username: username, password: password, ip: ip, port: port}]))
+        {:ok, ftp_sub_sup_pid} = Supervisor.start_child(supervisor, supervisor(FtpSubSupervisor, [%{ftp_data_pid: ftp_data_pid, root_dir: root_directory, username: username, password: password, ip: ip, port: port, debug: 2, timeout: :infinity, restart_time: 500}]))
     end
 
     def init(_) do
