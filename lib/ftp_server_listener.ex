@@ -8,6 +8,7 @@ defmodule FtpServerListener do
     def init(state) do
         ip = Map.get(state, :ip)
         port = Map.get(state, :port)
+        IO.puts "This is ip: #{inspect ip}"
         :ranch.start_listener(:control_socket, 10, :ranch_tcp, [port: port, ip: ip], FtpServer, [state])
         {:ok, state}
     end

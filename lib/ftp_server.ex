@@ -89,7 +89,7 @@ defmodule FtpServer do
             false ->
                 logger_debug("Invalid username or password\n")
                 send_message(@ftp_LOGINERR, "Invalid username or password")
-                close_socket(socket)
+                #close_socket(socket)
         end
     end
 
@@ -109,7 +109,12 @@ defmodule FtpServer do
         {:reply, state, state}
     end
 
-    def handle_info({:from_data_socket, msg},state) do
+    def handle_info({:ftp_data_log_message, message}, state) do
+        Enum.join([" [FTP_DATA]   ", message]) |> logger_debug
+        {:noreply, state}
+    end
+
+    def handle_info({:from_ftp_data, msg},state) do
         socket = get(:control_socket)
         ftp_data_pid = get(:ftp_data_pid)
         logger_debug "This is msg: #{inspect msg}"
@@ -151,13 +156,13 @@ defmodule FtpServer do
     end
     
     def terminate(reason, state) do
-        Logger.info "This is terminiate reason:\nSTART\n#{inspect reason}\nEND"
+        logger_debug "This is terminiate reason:\nSTART\n#{inspect reason}\nEND"
         #close_socket(socket) # make sure socket is closed
         #close_socket(listen_socket)
     end
 
     def terminate({:timeout, _}, state) do
-        Logger.info "Terminating from timeout"
+        logger_debug "Terminating from timeout"
         #close_socket(socket) # make sure socket is closed
         #close_socket(listen_socket)
     end
@@ -269,13 +274,14 @@ defmodule FtpServer do
 
     def handle_pasv(command) do
         ftp_data_pid = get(:ftp_data_pid)
-        p1 = :random.uniform(250)
-        p2 = :random.uniform(250)
+        p1 = 100 # :random.uniform(250)
+        p2 = 150 #:random.uniform(250)
         port_number = p1*256 + p2
-        ip = to_charlist("10.216.251.72")
+        ip = get(:control_ip)
+        {h1, h2, h3, h4} = ip
         FtpData.pasv(ftp_data_pid, ip, port_number)
-        logger_debug "This is control ip: #{inspect get(:control_ip)}"
-        {@ftp_PASVOK, "Entering Passive Mode (10,216,251,72,#{inspect p1},#{inspect p2})."}
+        logger_debug "This is control ip: #{inspect ip}"
+        {@ftp_PASVOK, "Entering Passive Mode (#{inspect h1},#{inspect h2},#{inspect h3},#{inspect h4},#{inspect p1},#{inspect p2})."}
     end
 
     def handle_abor(command) do
@@ -483,21 +489,6 @@ defmodule FtpServer do
 
     ## HELPER FUNCTIONS
 
-
-    defp restart_server() do
-        comm_socket = get(:control_socket)
-        listen_socket = get(:listen_socket)
-        ref = get(:listener_ref)
-        logger_debug("Restarting Server in #{inspect @restart_time} ms...\n")
-        close_socket(comm_socket)
-        #close_socket(listen_socket)
-        :ranch.stop_listener(ref)
-        Port.close(comm_socket)
-        Port.close(listen_socket)
-        :timer.sleep(@restart_time) ## allow time for sockets to close properly.
-        #start_listener()
-    end
-
     defp valid_username(expected_username, username) do
         case (expected_username == username) do
             true -> 0
@@ -515,7 +506,7 @@ defmodule FtpServer do
     defp logger_debug(message, id \\ "") do
         case @debug do
             0 -> :ok
-            _ -> Enum.join([" [FTP]   ", message]) |> Logger.debug
+            _ -> Enum.join([" [FTP]   ", message]) |> Logger.info
         end
     end
 
@@ -544,7 +535,7 @@ defmodule FtpServer do
         case @debug do
             2 ->
                 logger_debug("FROM SERVER #{message}")
-                #logger_debug(send_status)
+                logger_debug(send_status)
             _ -> :ok
         end
         
