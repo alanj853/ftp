@@ -81,16 +81,15 @@ defmodule FtpActiveSocket do
     end
 
     def handle_call(:close_data_socket, _from, state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
-      logger_debug "Closing data Socket..."
+      logger_debug "Closing Data Socket..."
       new_socket_state = close_socket(socket)
       message_ftp_data(:socket_close_ok)
-      logger_debug "Socket Closed."
       new_state = %{socket: new_socket_state, ftp_data_pid: ftp_data_pid, aborted: aborted}
       {:reply, state, new_state}
     end
 
     def handle_call({:close_data_socket, :abort}, _from, state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
-      logger_debug "Closing data Socket (due to abort command)..."
+      logger_debug "Closing Data Socket (due to abort command)..."
       new_socket_state = close_socket(socket)
       new_state = %{socket: new_socket_state, ftp_data_pid: ftp_data_pid, aborted: true}
       {:reply, state, new_state}
@@ -138,18 +137,18 @@ defmodule FtpActiveSocket do
   defp close_socket(socket) do
       case (socket == nil) do
           true ->
-            logger_debug "Socket #{inspect socket} already closed."
+            logger_debug "Data Socket #{inspect socket} already closed."
             nil
           false ->
               case :ranch_tcp.shutdown(socket, :read_write) do
                   :ok ->
-                    logger_debug "Socket #{inspect socket} successfully closed."
+                    logger_debug "Data Socket #{inspect socket} successfully closed."
                     nil
                   {:error, closed} -> 
-                    logger_debug "Socket #{inspect socket} already closed."
+                    logger_debug "Data Socket #{inspect socket} already closed."
                     nil
                   {:error, other_reason} -> 
-                    logger_debug "Error while attempting to close socket #{inspect socket}. Reason: #{other_reason}."
+                    logger_debug "Error while attempting to close Data Socket #{inspect socket}. Reason: #{other_reason}."
                     socket
               end
       end

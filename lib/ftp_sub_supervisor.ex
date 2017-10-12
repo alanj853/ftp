@@ -6,7 +6,13 @@ defmodule FtpSubSupervisor do
     end
 
     def init(state) do
-        child_process = [ worker(FtpServerListener, [state])]
-        supervise child_process, strategy: :one_for_one
+        Process.put(:default_state, state)
+        child_process = 
+        [ 
+            worker(FtpServerListener, [state])
+        ]
+        Process.put(:child_process, child_process)
+        supervise(child_process, strategy: :one_for_one)
     end
+
 end
