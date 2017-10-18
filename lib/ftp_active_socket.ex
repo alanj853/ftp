@@ -17,6 +17,10 @@ defmodule FtpActiveSocket do
         {:ok, state}
     end
 
+    def reset_state(pid) do
+      GenServer.cast pid, :reset_state
+    end
+
     def retr(pid, file, offset) do
       GenServer.cast pid, {:retr, file, offset}
     end
@@ -41,6 +45,11 @@ defmodule FtpActiveSocket do
       GenServer.call pid, {:create_socket, new_ip, new_port}
     end
 
+    def handle_cast(:reset_state, state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
+      logger_debug "Resetting Active Socket Server State"
+      {:noreply, %{socket: nil, ftp_data_pid: ftp_data_pid, aborted: false}}
+    end
+
     def handle_cast({:retr, file, new_offset} , state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
       file_info = transfer_info(file, 512)
       logger_debug "Sending file (#{inspect file_info})..."
@@ -50,16 +59,21 @@ defmodule FtpActiveSocket do
     end
 
     def handle_info({:send, {socket, file, file_info, new_offset, bytes, transmission_number}}, state) do
+      new_socket = socket
+      was_aborted = false
       aborted = Map.get(state, :aborted)
       case aborted do
         false ->
           send_file(socket, file, file_info, new_offset, bytes, transmission_number)
         true ->
           logger_debug "Aborting this transfer"
-          close_socket(socket)
+          new_socket = close_socket(socket)
+          was_aborted = true
           message_ftp_data(:socket_transfer_failed)
       end
-      {:noreply, state}
+      IO.puts "new socket: #{inspect new_socket}"
+      ftp_data_pid =  Process.get(:ftp_data_pid)
+      {:noreply, %{socket: new_socket, ftp_data_pid: ftp_data_pid, aborted: was_aborted}}
     end
 
     def transfer_info(file, chunk_size) do
@@ -118,7 +132,7 @@ defmodule FtpActiveSocket do
     def handle_cast({:list, file_info} , state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
       logger_debug "Sending result from LIST command..."
       :gen_tcp.send(socket, file_info)
-      logger_debug "Result from LIST command sent."
+      logger_debug "Result from LIST command sent. Sent #{inspect file_info}"
       message_ftp_data(:socket_transfer_ok)
       new_socket_state = close_socket(socket)
       new_state=%{socket: new_socket_state, ftp_data_pid: ftp_data_pid, aborted: aborted}

@@ -129,6 +129,7 @@ defmodule FtpServer do
                     true -> #:ok
                         send_message(@ftp_TRANSFERABORTED, "Connection closed; transfer aborted.")
                         send_message(@ftp_ABORTOK, "ABOR command successful")
+                        FtpData.reset_state(ftp_data_pid)
                     false -> send_message(@ftp_FILEFAIL, "Transfer Failed")
                 end
             :socket_close_ok -> 1#send_message(@ftp_TRANSFEROK, "Transfer Complete", socket)
@@ -516,7 +517,7 @@ defmodule FtpServer do
         pid = get(:ftp_logger_pid)
         Kernel.send(pid, {:ftp_server_log_message, message})
     end
-
+    
     defp send_message(code, msg, socket_mode \\ true) do
         socket = get(:control_socket)
         message = Enum.join([to_string(code), " " , msg, "\r\n"])

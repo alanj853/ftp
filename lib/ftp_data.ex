@@ -26,6 +26,10 @@ defmodule FtpData do
       GenServer.call pid, {:set_state, state}
     end
 
+    def reset_state(pid) do
+      GenServer.cast pid, :reset_state
+    end
+
     def set_server_pid(pid, server_pid) do
       GenServer.call pid, {:set_server_pid, server_pid}
     end
@@ -81,6 +85,16 @@ defmodule FtpData do
         false -> 
           pid = Process.get(:ftp_active_socket_pid)
           FtpActiveSocket.retr(pid, file, new_offset)
+      end
+      {:noreply, state}
+    end
+
+    def handle_cast(:reset_state , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
+      case pasv_mode do
+        true -> :ok
+        false -> 
+          pid = Process.get(:ftp_active_socket_pid)
+          FtpActiveSocket.reset_state(pid)
       end
       {:noreply, state}
     end
