@@ -42,18 +42,63 @@ defmodule FtpActiveSocket do
     end
 
     def handle_cast({:retr, file, new_offset} , state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
-      logger_debug "Sending file..."
-      case :ranch_tcp.sendfile(socket, file, new_offset, 0) do
-        {:ok, exit_code} ->
-          logger_debug "File sent."
-          message_ftp_data(:socket_transfer_ok)
-        {:error, reason} -> 
-          logger_debug "File not sent. Reason: #{inspect reason}"
+      file_info = transfer_info(file, 512)
+      logger_debug "Sending file (#{inspect file_info})..."
+      send_file(socket, file, file_info, new_offset, 512, 1)
+      new_state=%{socket: state, ftp_data_pid: ftp_data_pid, aborted: aborted}
+      {:noreply, new_state}
+    end
+
+    def handle_info({:send, {socket, file, file_info, new_offset, bytes, transmission_number}}, state) do
+      aborted = Map.get(state, :aborted)
+      case aborted do
+        false ->
+          send_file(socket, file, file_info, new_offset, bytes, transmission_number)
+        true ->
+          logger_debug "Aborting this transfer"
+          close_socket(socket)
           message_ftp_data(:socket_transfer_failed)
       end
-      new_socket_state = close_socket(socket)
-      new_state=%{socket: new_socket_state, ftp_data_pid: ftp_data_pid, aborted: aborted}
-      {:noreply, new_state}
+      {:noreply, state}
+    end
+
+    def transfer_info(file, chunk_size) do
+      {:ok, info} = File.stat(file)
+      file_size = Map.get(info, :size)
+      no_transmissions_needed = Integer.floor_div((file_size), chunk_size) + 1
+      last_transmission_size = file_size - (no_transmissions_needed-1)*chunk_size
+      logger_debug "For filesize #{inspect file_size}  number of transmissions real = #{inspect no_transmissions_needed}   last_transmission_size = #{last_transmission_size}"
+      %{file_size: file_size, transmissions: no_transmissions_needed, last_transmission_size: last_transmission_size}
+    end
+
+    defp send_file(socket, file, file_info, offset, bytes, transmission_number) do
+      cond do
+        transmission_number == Map.get(file_info,:transmissions) ->
+          logger_debug "file sent"
+          message_ftp_data(:socket_transfer_ok)
+          close_socket(socket)
+          :whole_file_sent
+        transmission_number == (Map.get(file_info,:transmissions)-1) -> 
+          bytes = Map.get(file_info,:last_transmission_size)
+          send_chunk(socket, file, offset, bytes)
+          new_offset = offset+bytes
+          transmission_number = transmission_number+1
+          Kernel.send(self(), {:send, {socket, file, file_info, new_offset, bytes, transmission_number}}) 
+        true ->
+          send_chunk(socket, file, offset, bytes)
+          new_offset = offset+bytes
+          transmission_number = transmission_number+1
+          Kernel.send(self(), {:send, {socket, file, file_info, new_offset, bytes, transmission_number}}) 
+      end
+           
+    end
+
+    defp send_chunk(socket, file, offset, bytes) do
+      logger_debug "trying to send chunk for #{inspect bytes} from offset #{offset}"
+      case :ranch_tcp.sendfile(socket, file, offset, bytes) do
+        {:ok, exit_code} -> :chunk_sent
+        {:error, reason} -> :chunk_not_sent
+      end
     end
 
     def handle_cast({:stor, to_path} , state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
@@ -90,14 +135,16 @@ defmodule FtpActiveSocket do
 
     def handle_call({:close_data_socket, :abort}, _from, state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
       logger_debug "Closing Data Socket (due to abort command)..."
-      new_socket_state = close_socket(socket)
-      new_state = %{socket: new_socket_state, ftp_data_pid: ftp_data_pid, aborted: true}
+      #new_socket_state = close_socket(socket)
+      new_state = %{socket: socket, ftp_data_pid: ftp_data_pid, aborted: true}
       {:reply, state, new_state}
     end
 
     def handle_call({:create_socket, new_ip, new_port}, _from, state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
       logger_debug "Connecting  to #{inspect new_ip}:#{inspect new_port}"
-      {:ok, socket} = :ranch_tcp.connect(new_ip, new_port ,[active: false, mode: :binary, packet: :raw]) 
+      {:ok, socket} = :ranch_tcp.connect(new_ip, new_port ,[active: false, mode: :binary, packet: :raw, exit_on_close: true, linger: {true, 100}]) 
+      socket_status = Port.info(socket)
+      logger_debug "This is new data_socket #{inspect socket} info: #{inspect socket_status}"
       message_ftp_data(:socket_create_ok)
       new_state = %{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}
       {:reply, state, new_state}
@@ -135,7 +182,7 @@ defmodule FtpActiveSocket do
     end
 
   defp close_socket(socket) do
-      case (socket == nil) do
+    case (socket == nil) do
           true ->
             logger_debug "Data Socket #{inspect socket} already closed."
             nil
