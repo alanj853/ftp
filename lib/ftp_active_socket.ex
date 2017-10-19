@@ -51,10 +51,10 @@ defmodule FtpActiveSocket do
     end
 
     def handle_cast({:retr, file, new_offset} , state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
-      file_info = transfer_info(file, 512)
+      file_info = transfer_info(file, 512, new_offset)
       logger_debug "Sending file (#{inspect file_info})..."
       send_file(socket, file, file_info, new_offset, 512, 1)
-      new_state=%{socket: state, ftp_data_pid: ftp_data_pid, aborted: aborted}
+      new_state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}
       {:noreply, new_state}
     end
 
@@ -71,14 +71,13 @@ defmodule FtpActiveSocket do
           was_aborted = true
           message_ftp_data(:socket_transfer_failed)
       end
-      IO.puts "new socket: #{inspect new_socket}"
       ftp_data_pid =  Process.get(:ftp_data_pid)
       {:noreply, %{socket: new_socket, ftp_data_pid: ftp_data_pid, aborted: was_aborted}}
     end
 
-    def transfer_info(file, chunk_size) do
+    def transfer_info(file, chunk_size, offset) do
       {:ok, info} = File.stat(file)
-      file_size = Map.get(info, :size)
+      file_size = Map.get(info, :size) - offset
       no_transmissions_needed = Integer.floor_div((file_size), chunk_size) + 1
       last_transmission_size = file_size - (no_transmissions_needed-1)*chunk_size
       logger_debug "For filesize #{inspect file_size}  number of transmissions real = #{inspect no_transmissions_needed}   last_transmission_size = #{last_transmission_size}"
@@ -87,12 +86,12 @@ defmodule FtpActiveSocket do
 
     defp send_file(socket, file, file_info, offset, bytes, transmission_number) do
       cond do
-        transmission_number == Map.get(file_info,:transmissions) ->
+        transmission_number == (Map.get(file_info,:transmissions)+1) ->
           logger_debug "file sent"
           message_ftp_data(:socket_transfer_ok)
           close_socket(socket)
           :whole_file_sent
-        transmission_number == (Map.get(file_info,:transmissions)-1) -> 
+        transmission_number == (Map.get(file_info,:transmissions)) -> 
           bytes = Map.get(file_info,:last_transmission_size)
           send_chunk(socket, file, offset, bytes)
           new_offset = offset+bytes
@@ -108,7 +107,7 @@ defmodule FtpActiveSocket do
     end
 
     defp send_chunk(socket, file, offset, bytes) do
-      logger_debug "trying to send chunk for #{inspect bytes} from offset #{offset}"
+      #logger_debug "trying to send chunk for #{inspect bytes} from offset #{offset}"
       case :ranch_tcp.sendfile(socket, file, offset, bytes) do
         {:ok, exit_code} -> :chunk_sent
         {:error, reason} -> :chunk_not_sent

@@ -73,6 +73,7 @@ defmodule FtpServer do
         setup_dd(state)
         FtpData.set_server_pid(get(:ftp_data_pid), self())
         :ranch.accept_ack(listener_pid)
+        set_socket_option(socket, :keepalive, true)
         socket_status = Port.info(socket)
         logger_debug "Got Connection. Socket status: #{inspect socket_status}"
         send_message(@ftp_OK, "Welcome to FTP Server", false)
@@ -202,11 +203,16 @@ defmodule FtpServer do
             String.contains?(command, "REST") == true -> handle_rest(command)
             String.contains?(command, "MODE") == true -> handle_mode(command)
             String.contains?(command, "ABOR") == true -> handle_abor(command)
-            true -> {@ftp_COMMANDNOTIMPL, "Command not implemented on this server"}
+            #command_not_implemented(command) == true -> {@ftp_COMMANDNOTIMPL, "Command '#{inspect command}' not implemented on this server"}
+            true -> {-1, "Junk Command"}
         end
 
         case code do
             0 -> :ok
+            -1 -> logger_debug "Don't know how to handle '#{inspect command}'"
+            @ftp_GOODBYE ->
+                send_message(code, response)
+                close_socket(socket)
             _ -> send_message(code, response)
         end
     end
@@ -536,7 +542,9 @@ defmodule FtpServer do
 
         send_status =
         case :ranch_tcp.send(socket, message) do
-            :ok -> "Message '#{message}' sent to client"
+            :ok -> 
+                message = String.trim_trailing(message, "\r\n") ## trim to make logging cleaner
+                "Message '#{message}' sent to client"
             {:error, reason} -> "Error sending message to Client: #{reason}"
         end
 
@@ -546,7 +554,12 @@ defmodule FtpServer do
                 logger_debug(send_status)
             _ -> :ok
         end
-        
+
+        # case :ranch_tcp.send(socket, "") do
+        #     :ok -> "Socket Cleaned"
+        #     {:error, reason} -> "Error Cleaning Client: #{reason}"
+        # end
+
         :ranch_tcp.setopts(socket, [active: socket_mode])
 
         # case :inet.getopts(socket, [:active]) do
@@ -571,7 +584,7 @@ defmodule FtpServer do
     end
 
     defp update_file_offset(new_offset) do
-        put(:offset, new_offset)
+        put(:file_offset, new_offset)
     end
 
     defp update_data_socket_info(new_ip, new_port) do
@@ -750,6 +763,17 @@ defmodule FtpServer do
         }
         Process.put(:data_dictionary, initial_state)
         logger_debug "DD Set Up #{inspect get}..."
+    end
+
+    defp set_socket_option(socket, option, value) do
+        before = :inet.getopts(socket, [option])
+        logger_debug "#{inspect option} before: #{inspect before}"
+        case :ranch_tcp.setopts(socket, [{option, value}]) do
+            :ok -> logger_debug "#{inspect option}  set"
+            {:error, reason} -> logger_debug "#{inspect option}  not set. Reason #{reason}"
+        end
+        after1 = :inet.getopts(socket, [option])
+        logger_debug("#{inspect option} after: #{inspect after1}")
     end
 
 end
