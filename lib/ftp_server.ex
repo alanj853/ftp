@@ -50,10 +50,7 @@ defmodule FtpServer do
     @ftp_NOPERM              550
     @ftp_UPLOADFAIL          553
 
-    @timeout :infinity
     @server_name __MODULE__
-    @debug 2
-    @restart_time 500
     require Logger
     use GenServer
 
@@ -73,7 +70,7 @@ defmodule FtpServer do
         setup_dd(state)
         FtpData.set_server_pid(get(:ftp_data_pid), self())
         :ranch.accept_ack(listener_pid)
-        set_socket_option(socket, :keepalive, true)
+        set_socket_option(socket, :keepalive, true) ## we don't want control socket to close due to an inactivity timeout while a transfer is on-going on the data socket
         socket_status = Port.info(socket)
         logger_debug "Got Connection. Socket status: #{inspect socket_status}"
         send_message(@ftp_OK, "Welcome to FTP Server", false)
@@ -163,14 +160,10 @@ defmodule FtpServer do
     
     def terminate(reason, state) do
         logger_debug "This is terminiate reason:\nSTART\n#{inspect reason}\nEND"
-        #close_socket(socket) # make sure socket is closed
-        #close_socket(listen_socket)
     end
 
     def terminate({:timeout, _}, state) do
         logger_debug "Terminating from timeout"
-        #close_socket(socket) # make sure socket is closed
-        #close_socket(listen_socket)
     end
 
 
@@ -178,7 +171,6 @@ defmodule FtpServer do
 
     defp handle_command(command) do
         logger_debug("FROM CLIENT: #{command}")
-        #buffer2 = Enum.join([buffer, command])
         socket = get(:control_socket)
         command = to_string(command)
         {code, response} =
@@ -300,9 +292,6 @@ defmodule FtpServer do
         pid = get(:ftp_data_pid)
         FtpData.close_data_socket(pid, :abort)
         {0, :ok}
-        #send_message(@ftp_TRANSFERABORTED, "Connection closed; transfer aborted.")
-        #send_message(@ftp_ABORTOK, "ABOR command successful")
-        #{@ftp_ABORTOK, "Abort Command Successful"}
     end
 
     def handle_type(command) do
@@ -527,19 +516,10 @@ defmodule FtpServer do
     defp send_message(code, msg, socket_mode \\ true) do
         socket = get(:control_socket)
         message = Enum.join([to_string(code), " " , msg, "\r\n"])
-        case @debug do
-            2 ->:ok #logger_debug("Sending this message to client: #{message}. Socket = #{inspect socket}")
-            _ -> :ok
-        end
 
         ## temporarily set to false so we can send messages
-        :ranch_tcp.setopts(socket, [active: false])
-
-        # case :inet.getopts(socket, [:active]) do
-        #     {:ok, opts} -> logger_debug "This is socket now: #{inspect opts}"
-        #     {:error, reason} -> logger_debug "Error getting opts. Reason #{reason}"
-        # end
-
+        set_socket_option(socket, :active, false)
+        
         send_status =
         case :ranch_tcp.send(socket, message) do
             :ok -> 
@@ -548,24 +528,10 @@ defmodule FtpServer do
             {:error, reason} -> "Error sending message to Client: #{reason}"
         end
 
-        case @debug do
-            2 ->
-                logger_debug("FROM SERVER #{message}")
-                logger_debug(send_status)
-            _ -> :ok
-        end
+        logger_debug("FROM SERVER #{message}")
+        logger_debug(send_status)
 
-        # case :ranch_tcp.send(socket, "") do
-        #     :ok -> "Socket Cleaned"
-        #     {:error, reason} -> "Error Cleaning Client: #{reason}"
-        # end
-
-        :ranch_tcp.setopts(socket, [active: socket_mode])
-
-        # case :inet.getopts(socket, [:active]) do
-        #     {:ok, opts} -> logger_debug "This is socket now: #{inspect opts}"
-        #     {:error, reason} -> logger_debug "Error getting opts. Reason #{reason}"
-        # end
+        set_socket_option(socket, :active, socket_mode) ## reset to true (by default)
     end
 
     defp is_absolute_path(path) do
@@ -593,7 +559,7 @@ defmodule FtpServer do
     end
 
     @doc """
-    Simple module to check if the user can view a file/folder. Function attempts to
+    Simple function to check if the user can view a file/folder. Function attempts to
     perform a `String.trim_leading` call on the `current_path`. If `current_path` is
     part of the `root_path`, the `String.trim_leading` call will be able to remove the
     `root_path` string from the `current_path` string. If not, it will simply return
@@ -616,15 +582,28 @@ defmodule FtpServer do
         true
     end
 
+
+    @doc """
+    Function used to determine if a user is allowed to write to the `current_path`
+    """
     defp allowed_to_write(current_path) do
         true
     end
 
+    
+    @doc """
+    Iterator for getting all of the file info for each `file` in `files`, and then
+    returns them as a single string
+    """
     defp get_info(cd,files) do
         list = for file <- files, do: Enum.join([cd, "/", file]) |> format_file_info
         Enum.join(list, "\r\n")
     end
 
+
+    @doc """
+    Function to format all of the file info into a single string, in a UNIX-like format
+    """
     defp format_file_info(file) do
         root_dir = get(:root_dir)
         name = String.trim_leading(file, root_dir) |> String.split("/") |> List.last
@@ -644,6 +623,10 @@ defmodule FtpServer do
         Enum.join([permissions, links, uid, gid, size, timestamp, name], " ")
     end
 
+
+    @doc """
+    Function to the permissions in a UNIX-like format
+    """
     defp format_permissions(type, access) do
         directory =
         case type do
@@ -660,6 +643,10 @@ defmodule FtpServer do
         Enum.join([directory, permissions, permissions, permissions])
     end
 
+
+    @doc """
+    Function to format the month, given `month` passed in as an integer
+    """
     defp format_month(month) do
         cond do
             month == 1 -> "Jan"
@@ -674,9 +661,14 @@ defmodule FtpServer do
             month == 10 -> "Oct"
             month == 11 -> "Nov"
             month == 12 -> "Dec"
+            true -> "Err"
         end
     end
 
+
+    @doc """
+    Function to perform the authenication at the beginning of a connection
+    """
     defp auth(socket) do
         expected_username = get(:username)
         expected_password = get(:password)
@@ -687,7 +679,7 @@ defmodule FtpServer do
         "USER " <> username = to_string(data) |> String.trim()
 
         send_message(@ftp_GIVEPWORD,"Enter Password")
-        # {:ok, data} = :gen_tcp.recv(socket, 0)
+        
         data = receive do
             {:tcp, _socket, data} -> data
           end
@@ -701,17 +693,26 @@ defmodule FtpServer do
         end
     end
 
-    defp determine_path(root_dir, cd, path) do
+
+    @doc """
+    Function to determine the path as it is on the filesystem, given the `root_directory` on the ftp server, `current_directory` 
+    (as the client sees it) and the `path` provided by the client.
+    """
+    defp determine_path(root_directory, current_directory, path) do
         ## check if path given is an absolute path
         new_path = 
         case is_absolute_path(path) do
-            true -> String.trim_leading(path, "/") |> Path.expand(root_dir)
-            false -> String.trim_leading(path, "/") |> Path.expand(cd) |> String.trim_leading("/") |> Path.expand(root_dir)
+            true -> String.trim_leading(path, "/") |> Path.expand(root_directory)
+            false -> String.trim_leading(path, "/") |> Path.expand(current_directory) |> String.trim_leading("/") |> Path.expand(root_directory)
         end
-        logger_debug "This is the path we were given: '#{path}'. This is cd: '#{cd}'. This is root_dir: '#{root_dir}'. Determined that this is the current path: '#{new_path}'"
+        logger_debug "This is the path we were given: '#{path}'. This is current_directory: '#{current_directory}'. This is root_directory: '#{root_directory}'. Determined that this is the current path: '#{new_path}'"
         new_path
     end
 
+
+    @doc """
+    Function to close the control socket
+    """
     defp close_socket(socket) do
         case (socket == nil) do
             true -> logger_debug "Socket #{inspect socket} already closed."
@@ -724,19 +725,31 @@ defmodule FtpServer do
         end
     end
 
-    def put(key, value) do
+
+    @doc """
+    Function to get from the Process data dictionary (dd)
+    """
+    defp put(key, value) do
         new_map = Process.get(:data_dictionary) |> Map.put(key, value)
         Process.put(:data_dictionary, new_map)
     end
 
-    def get(key \\ nil) do
+
+    @doc """
+    Function to put in the Process data dictionary (dd)
+    """
+    defp get(key \\ nil) do
         case key do
           nil -> Process.get(:data_dictionary)
           _ -> Process.get(:data_dictionary) |> Map.get(key)
         end
     end
 
-    def setup_dd(args) do
+
+    @doc """
+    Function to quicky add the initial state to the Process data dictionary (dd)
+    """
+    defp setup_dd(args) do
         initial_state = 
         %{
             root_dir: Map.get(args, :root_dir),
@@ -765,15 +778,21 @@ defmodule FtpServer do
         logger_debug "DD Set Up #{inspect get}..."
     end
 
+
+    @doc """
+    Function to set socket options. See http://erlang.org/doc/man/inet.html#setopts-2
+    for various options that can be set
+    """
     defp set_socket_option(socket, option, value) do
         before = :inet.getopts(socket, [option])
-        logger_debug "#{inspect option} before: #{inspect before}"
         case :ranch_tcp.setopts(socket, [{option, value}]) do
-            :ok -> logger_debug "#{inspect option}  set"
-            {:error, reason} -> logger_debug "#{inspect option}  not set. Reason #{reason}"
+            :ok ->
+                after1 = :inet.getopts(socket, [option])
+                logger_debug "Set value of #{inspect option} before: #{inspect before} | after: #{inspect after1}"
+            {:error, reason} -> 
+                logger_debug "#{inspect option}  not set. Reason #{reason}"
         end
-        after1 = :inet.getopts(socket, [option])
-        logger_debug("#{inspect option} after: #{inspect after1}")
+        
     end
 
 end
