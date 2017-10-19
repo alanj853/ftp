@@ -1,6 +1,8 @@
 defmodule FtpServerListener do
     use GenServer
 
+    @server_name __MODULE__
+
     def start_link(args) do
         GenServer.start_link(__MODULE__, args, name: @server_name)
     end

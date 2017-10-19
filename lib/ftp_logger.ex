@@ -10,8 +10,8 @@ defmodule FtpLogger do
     require Logger
     use GenServer
 
-    def start_link(args = %{debug: debug}) do
-        {:ok, pid} = GenServer.start_link(__MODULE__, debug)
+    def start_link(_args = %{debug: debug}) do
+        {:ok, _pid} = GenServer.start_link(__MODULE__, debug)
     end
 
     def init(state) do
