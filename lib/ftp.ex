@@ -59,10 +59,10 @@ defmodule Ftp do
         end
     end
 
-    defp is_read_only_dir(path) do
-        case String.trim_leading("/var/system", path) do
-            path -> true
-            _ -> false
+    def is_read_only_dir(path) do
+        case (path == String.trim_leading(path, "/var/system")) do
+            true -> true
+            false -> false
         end
     end
 
