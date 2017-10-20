@@ -1,4 +1,8 @@
-1. Graceful shutdown - Don't want to see terminate being called
-2. Handle ABORT fully - Allow log in again etc.
+1. Graceful shutdown - Don't want to see terminate being called DONE
+2. Handle ABORT fully - Allow log in again etc. DONE
 3. Add config for allowed files/folders
 4. Handle Multiple Users
+5. Make sure user can't view any directory outside of root
+6. Make sure user can't access any directory outside of root
+7. Make sure user can't make any directory outside of root
+8. Make sure user can't remove any directory outside of root

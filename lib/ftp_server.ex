@@ -50,6 +50,9 @@ defmodule FtpServer do
     @ftp_NOPERM              550
     @ftp_UPLOADFAIL          553
 
+    @ftp_NORESPONSE            0
+    @ftp_ERRRESPONSE          -1
+
     @server_name __MODULE__
     require Logger
     use GenServer
@@ -194,12 +197,12 @@ defmodule FtpServer do
             String.contains?(command, "MODE") == true -> handle_mode(command)
             String.contains?(command, "ABOR") == true -> handle_abor(command)
             #command_not_implemented(command) == true -> {@ftp_COMMANDNOTIMPL, "Command '#{inspect command}' not implemented on this server"}
-            true -> {-1, "Junk Command"}
+            true -> {@ftp_ERRRESPONSE, "Junk Command"}
         end
 
         case code do
-            0 -> :ok
-            -1 -> logger_debug "Don't know how to handle '#{inspect command}'"
+            @ftp_NORESPONSE -> :ok
+            @ftp_ERRRESPONSE -> logger_debug "Don't know how to handle '#{inspect command}'"
             @ftp_GOODBYE ->
                 send_message(code, response)
                 close_socket(socket)
@@ -314,7 +317,7 @@ defmodule FtpServer do
         logger_debug "Handling abort.."
         pid = get(:ftp_data_pid)
         FtpData.close_data_socket(pid, :abort)
-        {0, :ok}
+        {@ftp_NORESPONSE, :ok}
     end
 
     
@@ -401,28 +404,29 @@ defmodule FtpServer do
         ftp_data_pid = get(:ftp_data_pid)
         case command do
             "LIST\r\n" ->
-                current_server_working_directory = get(:server_cd)
-                {:ok, files} = File.ls(current_server_working_directory)
-                file_info = get_info(current_server_working_directory, files)
-                file_info = Enum.join([file_info, "\r\n"])
-                send_message(@ftp_DATACONN, "Opening Data Socket for transfer of ls command...")
-                ip = get(:data_ip) |> to_charlist
-                port = get(:data_port)
-                FtpData.create_socket(ftp_data_pid, ip, port)
-                FtpData.list(ftp_data_pid, file_info)
-                {0, :ok}
+                get(:server_cd) |> do_list()
+                {@ftp_NORESPONSE, :ok}
             "LIST -a\r\n" ->
-                current_server_working_directory = get(:server_cd)
-                {:ok, files} = File.ls(current_server_working_directory)
-                file_info = get_info(current_server_working_directory, files)
-                file_info = Enum.join([file_info, "\r\n"]) 
-                send_message(@ftp_DATACONN, "Opening Data Socket for transfer of ls command...")
-                ip = get(:data_ip) |> to_charlist
-                port = get(:data_port)
-                FtpData.create_socket(ftp_data_pid, ip, port)
-                FtpData.list(ftp_data_pid, file_info)
-                {0, :ok}
-            _ -> {@ftp_COMMANDNOTIMPL, "Command not implemented on this server"}
+                get(:server_cd) |> do_list()
+                {@ftp_NORESPONSE, :ok}
+            _ -> ## assume it was 'LIST path'
+                "LIST " <> path = command |> String.trim()
+                root_dir = get(:root_dir)
+                current_client_working_directory = get(:client_cd)
+                working_path = determine_path(root_dir, current_client_working_directory, path)
+        
+                path_exists = File.exists?(working_path)
+                is_directory = File.dir?(working_path)
+                have_read_access = allowed_to_read(working_path)
+        
+                cond do
+                    path_exists == false -> {@ftp_FILEFAIL, "Current directory '#{path}' does not exist."}
+                    have_read_access == false -> {@ftp_NOPERM, "You don't have permission to read from this directory ('#{path}')."}
+                    true -> 
+                        do_list(working_path)
+                        {@ftp_NORESPONSE, :ok}
+                end
+            _ -> {@ftp_COMMANDNOTIMPL, "That LIST Command is not implemented on this server"}
         end
     end
 
@@ -477,7 +481,7 @@ defmodule FtpServer do
                 ip = to_charlist(ip)
                 FtpData.create_socket(ftp_data_pid, ip, port)
                 FtpData.stor(ftp_data_pid, working_path)
-                {0, :ok}
+                {@ftp_NORESPONSE, :ok}
             false ->
                 {@ftp_NOPERM, "You don't have permission to write to this directory ('#{path}')."}
         end
@@ -512,7 +516,7 @@ defmodule FtpServer do
                 ip = to_charlist(ip)
                 FtpData.create_socket(ftp_data_pid, ip, port)
                 FtpData.retr(ftp_data_pid, working_path, offset)
-                {0, :ok}
+                {@ftp_NORESPONSE, :ok}
         end
     end
 
@@ -619,6 +623,23 @@ defmodule FtpServer do
 
         set_socket_option(socket, :active, socket_mode) ## reset to true (by default)
     end
+
+
+    @doc """
+    Function to perform the list command and sends the response to the FtpData GenServer for
+    transmission to the client over the data socket
+    """
+    def do_list(working_path) do
+        ftp_data_pid = get(:ftp_data_pid)
+        {:ok, files} = File.ls(working_path)
+        file_info = get_info(working_path, files)
+        file_info = Enum.join([file_info, "\r\n"])
+        send_message(@ftp_DATACONN, "Opening Data Socket for transfer of ls command...")
+        ip = get(:data_ip) |> to_charlist
+        port = get(:data_port)
+        FtpData.create_socket(ftp_data_pid, ip, port)
+        FtpData.list(ftp_data_pid, file_info)
+    end
     
     
     @doc """
@@ -631,14 +652,12 @@ defmodule FtpServer do
     def allowed_to_read(current_path) do
         root_dir = get(:root_dir)
         case (current_path == root_dir) do
-        true ->
+        true -> 
             true
         false ->
             case (current_path == String.trim_leading(current_path, root_dir)) do
-            true ->
-                false
-            false ->
-                true
+            true -> false
+            false -> true
             end
         end
 
