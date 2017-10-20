@@ -5,8 +5,8 @@ defmodule FtpLogger do
 
     @server_name FtpLogger
     @debug 2
-    @logfile "/home/alan/Development/ftp/lib/ftp_log.txt"
-    @logfile_bak "/home/alan/Development/ftp/lib/ftp_log1.txt"
+    @logfile "lib/ftp_log.txt"
+    @logfile_bak "lib/ftp_log1.txt"
     require Logger
     use GenServer
 
