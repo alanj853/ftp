@@ -1,4 +1,5 @@
 defmodule Ftp do
+    require Logger
     @moduledoc """
     Module where the ftp server is started from
     """
@@ -22,7 +23,14 @@ defmodule Ftp do
     """
     def start_server(ip, port, root_directory, username \\ "apc", password \\ "apc") do
         ip = process_ip(ip)
-        FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password})
+        case File.exists?(root_directory) do
+            true -> 
+                case File.dir?(root_directory) do
+                    true -> FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password})
+                    false -> Logger.error("NOT STARTING FTP SERVER. #{inspect root_directory} exists but it is not a directory")
+                end
+            false -> Logger.error("NOT STARTING FTP SERVER. #{inspect root_directory} does not exist")
+        end
     end
 
     defp process_ip(ip) do
