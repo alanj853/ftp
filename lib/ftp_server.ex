@@ -72,21 +72,21 @@ defmodule FtpServer do
         :ranch.accept_ack(listener_pid)
         set_socket_option(socket, :keepalive, true, false) ## we don't want control socket to close due to an inactivity timeout while a transfer is on-going on the data socket
         socket_status = Port.info(socket)
-        logger_debug "Got Connection. Socket status: #{inspect socket_status}"
+        logger_debug("Got Connection. Socket status: #{inspect socket_status}", :comm)
         send_message(@ftp_OK, "Welcome to FTP Server", false)
 
         case :ranch_tcp.setopts(socket, [active: true]) do
-            :ok -> logger_debug "Socket successfully set to active"
-            {:error, reason} -> logger_debug "Socket not set to active. Reason #{reason}"
+            :ok -> logger_debug("Socket successfully set to active", :comm)
+            {:error, reason} -> logger_debug("Socket not set to active. Reason #{reason}", :comm)
         end
         
         sucessful_authentication = auth()
         case sucessful_authentication do
             true ->
-                logger_debug "Valid Login Credentials"
+                logger_debug("Valid Login Credentials", :comm)
                 send_message(@ftp_LOGINOK, "User Authenticated")
             false ->
-                logger_debug("Invalid username or password\n")
+                logger_debug("Invalid username or password\n", :comm)
                 send_message(@ftp_LOGINERR, "Invalid username or password")
                 close_socket(socket)
         end
@@ -168,7 +168,7 @@ defmodule FtpServer do
     Function to determine what action to take based on given command from the client
     """
     def handle_command(command) do
-        logger_debug("FROM CLIENT: #{command}")
+        logger_debug("FROM CLIENT: #{command}", :comm)
         socket = get(:control_socket)
         command = to_string(command)
         {code, response} =
@@ -586,13 +586,15 @@ defmodule FtpServer do
 
     
     @doc """
-    Function to send any log messages to the FtpLogger module
+    Function to send any log messages to the FtpLogger module. A priority-based
+    system is used:
+    1. If `priority` equals `:all` (default) then all messages sent to this function will be logged
+    2. If `priority` equals `:comm` then only messages that signify communication between the client and server will be logged
     """
-    def logger_debug(message) do
+    def logger_debug(message, priority \\ :all) do
         message = Enum.join([" [FTP]   ", message])
-
         pid = get(:ftp_logger_pid)
-        Kernel.send(pid, {:ftp_server_log_message, message})
+        Kernel.send(pid, {:ftp_server_log_message, message, priority})    
     end
     
     
@@ -609,10 +611,10 @@ defmodule FtpServer do
         case :ranch_tcp.send(socket, message) do
             :ok -> 
                 message = String.trim_trailing(message, "\r\n") ## trim to make logging cleaner
-                logger_debug("FROM SERVER #{message}")
+                logger_debug("FROM SERVER #{message}", :comm)
                 logger_debug("Message '#{message}' sent to client")
             {:error, reason} -> 
-                logger_debug("Error sending message to Client: #{reason}") 
+                logger_debug("Error sending message to Client: #{reason}", :comm) 
         end
 
         set_socket_option(socket, :active, socket_mode) ## reset to true (by default)
