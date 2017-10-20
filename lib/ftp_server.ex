@@ -70,7 +70,7 @@ defmodule FtpServer do
         setup_dd(state)
         FtpData.set_server_pid(get(:ftp_data_pid), self())
         :ranch.accept_ack(listener_pid)
-        set_socket_option(socket, :keepalive, true) ## we don't want control socket to close due to an inactivity timeout while a transfer is on-going on the data socket
+        set_socket_option(socket, :keepalive, true, false) ## we don't want control socket to close due to an inactivity timeout while a transfer is on-going on the data socket
         socket_status = Port.info(socket)
         logger_debug "Got Connection. Socket status: #{inspect socket_status}"
         send_message(@ftp_OK, "Welcome to FTP Server", false)
@@ -855,14 +855,21 @@ defmodule FtpServer do
     Function to set socket options. See http://erlang.org/doc/man/inet.html#setopts-2
     for various options that can be set
     """
-    def set_socket_option(socket, option, value) do
+    def set_socket_option(socket, option, value, quiet_mode \\ true) do
         before = :inet.getopts(socket, [option])
         case :ranch_tcp.setopts(socket, [{option, value}]) do
             :ok ->
                 after1 = :inet.getopts(socket, [option])
-                logger_debug "Set value of #{inspect option} before: #{inspect before} | after: #{inspect after1}"
+                case quiet_mode do
+                    true -> :ok
+                    false -> logger_debug "Set value of #{inspect option} before: #{inspect before} | after: #{inspect after1}"
+                end
+                
             {:error, reason} -> 
-                logger_debug "#{inspect option}  not set. Reason #{reason}"
+                case quiet_mode do
+                    true -> :ok
+                    false -> logger_debug "#{inspect option}  not set. Reason #{reason}"
+                end
         end
         
     end
