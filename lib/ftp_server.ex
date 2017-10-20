@@ -88,7 +88,7 @@ defmodule FtpServer do
             false ->
                 logger_debug("Invalid username or password\n")
                 send_message(@ftp_LOGINERR, "Invalid username or password")
-                #close_socket(socket)
+                close_socket(socket)
         end
     end
 
