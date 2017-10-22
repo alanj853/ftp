@@ -3,18 +3,18 @@ defmodule FtpLogger do
     Documentation for FtpServer
     """
 
-    @server_name __MODULE__
     @desktop_logfile "lib/ftp_log.txt"
     require Logger
     use GenServer
 
-    def start_link(_args = %{debug: debug, log_file_directory: dir, machine: machine}) do
+    def start_link(_args = %{debug: debug, log_file_directory: dir, machine: machine, server_name: server_name}) do
         dir = String.trim_trailing(dir, "/")
         log_file = Enum.join([dir, "/ftp_log.txt"])
-        {:ok, _pid} = GenServer.start_link(__MODULE__, %{debug: debug, log_file: log_file, machine: machine})
+        name = Enum.join([server_name, "_ftp_logger"]) |> String.to_atom
+        {:ok, _pid} = GenServer.start_link(__MODULE__, %{debug: debug, log_file: log_file, machine: machine, server_name: server_name}, name: name)
     end
 
-    def init(state = %{debug: _debug, log_file: log_file, machine: machine}) do
+    def init(state = %{debug: _debug, log_file: log_file, machine: machine, server_name: server_name}) do
         Logger.info "Started Logger"
         case machine do ## check to see if we're on a Desktop
             :desktop -> 
@@ -37,7 +37,8 @@ defmodule FtpLogger do
         {:ok, state}
     end
 
-    def handle_info({:ftp_server_log_message, message, priority}, state = %{debug: debug, log_file: log_file, machine: machine}) do
+    def handle_info({:ftp_server_log_message, message, priority}, state = %{debug: debug, log_file: log_file, machine: machine, server_name: server_name}) do
+        message = Enum.join([server_name, " ", message])
         case debug do
             0 -> 
                 :ok

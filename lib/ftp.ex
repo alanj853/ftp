@@ -26,12 +26,12 @@ defmodule Ftp do
             1 -> Will print messages to and from client
             2 -> Will print messages to and from client, and also all debug messages from the server backend.
     """
-    def start_server(ip, port, root_directory, username \\ "apc", password \\ "apc", log_file_directory \\ "/var/system/priv/log/ftp", debug \\ 2) do
+    def start_server(name, ip, port, root_directory, username \\ "apc", password \\ "apc", log_file_directory \\ "/var/system/priv/log/ftp", debug \\ 2) do
         ip = process_ip(ip)
         machine = get_machine_type()
         result = pre_run_checks(ip, port, root_directory, log_file_directory, machine)
         case result do
-            :ok_to_start -> FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password, log_file_directory: log_file_directory, debug: debug, machine: machine})
+            :ok_to_start -> FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password, log_file_directory: log_file_directory, debug: debug, machine: machine, server_name: name})
             error -> Logger.error("NOT STARTING FTP SERVER. #{inspect error}")
         end
     end
@@ -67,7 +67,8 @@ defmodule Ftp do
     end
 
     def dummy() do
-        start_server("127.0.0.1", 2121, "/home/user", "apc", "apc", "dfsf", 2)
+        start_server("uc1", "127.0.0.1", 2121, "/home/user")
+        #start_server("uc2", "127.0.0.1", 2122, "/home/user")
     end
      
     

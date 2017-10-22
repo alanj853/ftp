@@ -4,15 +4,14 @@ defmodule FtpActiveSocket do
     """
     require Logger
     use GenServer
-
-    @server_name __MODULE__
     
-    def start_link(_state = %{ftp_data_pid: ftp_data_pid, aborted: aborted}) do
-        initial_state = %{ socket: nil, ftp_data_pid: ftp_data_pid, aborted: aborted}
-        GenServer.start_link(__MODULE__, initial_state, name: @server_name)
+    def start_link(_state = %{ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}) do
+        name = Enum.join([server_name, "_ftp_active_socket"]) |> String.to_atom
+        initial_state = %{ socket: nil, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: name}
+        GenServer.start_link(__MODULE__, initial_state, name: name)
     end
     
-    def init(state = %{ socket: _socket, ftp_data_pid: ftp_data_pid, aborted: _aborted}) do
+    def init(state = %{ socket: _socket, ftp_data_pid: ftp_data_pid, aborted: _aborted, server_name: server_name}) do
         Process.put(:ftp_data_pid, ftp_data_pid)
         {:ok, state}
     end
@@ -45,20 +44,20 @@ defmodule FtpActiveSocket do
       GenServer.call pid, {:create_socket, new_ip, new_port}
     end
 
-    def handle_cast(:reset_state, _state=%{socket: _socket, ftp_data_pid: ftp_data_pid, aborted: _aborted}) do
+    def handle_cast(:reset_state, _state=%{socket: _socket, ftp_data_pid: ftp_data_pid, aborted: _aborted, server_name: server_name}) do
       logger_debug "Resetting Active Socket Server State"
-      {:noreply, %{socket: nil, ftp_data_pid: ftp_data_pid, aborted: false}}
+      {:noreply, %{socket: nil, ftp_data_pid: ftp_data_pid, aborted: false, server_name: server_name}}
     end
 
-    def handle_cast({:retr, file, new_offset} , _state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
+    def handle_cast({:retr, file, new_offset} , _state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}) do
       file_info = transfer_info(file, 512, new_offset)
       logger_debug "Sending file (#{inspect file_info})..."
       send_file(socket, file, file_info, new_offset, 512, 1)
-      new_state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}
+      new_state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}
       {:noreply, new_state}
     end
 
-    def handle_cast({:stor, to_path} , _state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
+    def handle_cast({:stor, to_path} , _state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}) do
       logger_debug "Receiving file..."
       {:ok, file} = receive_file(socket)
       logger_debug("This is packet: #{inspect file}")
@@ -68,7 +67,7 @@ defmodule FtpActiveSocket do
       logger_debug "File received."
       message_ftp_data(:socket_transfer_ok)
       new_socket_state = close_socket(socket)
-      new_state=%{socket: new_socket_state, ftp_data_pid: ftp_data_pid, aborted: aborted}
+      new_state=%{socket: new_socket_state, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}
       {:noreply, new_state}
     end
 
@@ -142,28 +141,28 @@ defmodule FtpActiveSocket do
       end
     end
 
-    def handle_call(:close_data_socket, _from, state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
+    def handle_call(:close_data_socket, _from, state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}) do
       logger_debug "Closing Data Socket..."
       new_socket_state = close_socket(socket)
       message_ftp_data(:socket_close_ok)
-      new_state = %{socket: new_socket_state, ftp_data_pid: ftp_data_pid, aborted: aborted}
+      new_state = %{socket: new_socket_state, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}
       {:reply, state, new_state}
     end
 
-    def handle_call({:close_data_socket, :abort}, _from, state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: _aborted}) do
+    def handle_call({:close_data_socket, :abort}, _from, state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: _aborted, server_name: server_name}) do
       logger_debug "Closing Data Socket (due to abort command)..."
       #new_socket_state = close_socket(socket)
       new_state = %{socket: socket, ftp_data_pid: ftp_data_pid, aborted: true}
       {:reply, state, new_state}
     end
 
-    def handle_call({:create_socket, new_ip, new_port}, _from, state=%{socket: _socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
+    def handle_call({:create_socket, new_ip, new_port}, _from, state=%{socket: _socket, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}) do
       logger_debug "Connecting  to #{inspect new_ip}:#{inspect new_port}"
       {:ok, socket} = :ranch_tcp.connect(new_ip, new_port ,[active: false, mode: :binary, packet: :raw, exit_on_close: true, linger: {true, 100}]) 
       socket_status = Port.info(socket)
       logger_debug "This is new data_socket #{inspect socket} info: #{inspect socket_status}"
       message_ftp_data(:socket_create_ok)
-      new_state = %{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}
+      new_state = %{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}
       {:reply, state, new_state}
     end
 

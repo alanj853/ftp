@@ -5,16 +5,15 @@ defmodule FtpData do
     require Logger
     use GenServer
 
-    @server_name __MODULE__
-    @debug 2
     
-    def start_link() do
-        initial_state = %{ socket: nil, server_pid: nil, pasv_mode: false, aborted: false}
-        GenServer.start_link(__MODULE__, initial_state, name: @server_name)
+    def start_link(_args = %{server_name: server_name}) do
+        name = Enum.join([server_name, "_ftp_data"]) |> String.to_atom
+        initial_state = %{ socket: nil, ftp_server_pid: nil, pasv_mode: false, aborted: false, server_name: name}
+        GenServer.start_link(__MODULE__, initial_state, name: name)
     end
     
-    def init(state= %{ socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
-      Process.put(:server_pid, server_pid)
+    def init(state= %{ socket: socket, ftp_server_pid: ftp_server_pid, pasv_mode: pasv_mode, aborted: aborted, server_name: server_name}) do
+      Process.put(:ftp_server_pid, ftp_server_pid)
       {:ok, state}
     end
 
@@ -30,8 +29,8 @@ defmodule FtpData do
       GenServer.cast pid, :reset_state
     end
 
-    def set_server_pid(pid, server_pid) do
-      GenServer.call pid, {:set_server_pid, server_pid}
+    def set_server_pid(pid, ftp_server_pid) do
+      GenServer.call pid, {:set_server_pid, ftp_server_pid}
     end
 
     def retr(pid, file, offset) do
@@ -70,16 +69,16 @@ defmodule FtpData do
       {:reply, state, new_state}
     end
 
-    def handle_call({:set_server_pid, new_server_pid}, _from, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
-      Process.put(:server_pid, new_server_pid)
-      {:reply, state, %{socket: socket, server_pid: new_server_pid, pasv_mode: pasv_mode, aborted: aborted}}
+    def handle_call({:set_server_pid, new_server_pid}, _from, state=%{socket: socket, ftp_server_pid: ftp_server_pid, pasv_mode: pasv_mode, aborted: aborted, server_name: server_name}) do
+      Process.put(:ftp_server_pid, new_server_pid)
+      {:reply, state, %{socket: socket, ftp_server_pid: new_server_pid, pasv_mode: pasv_mode, aborted: aborted, server_name: server_name}}
     end
 
-    def handle_call({:set_server_pid, new_server_pid}, _from, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
-      {:reply, state, %{socket: socket, server_pid: new_server_pid, pasv_mode: pasv_mode, aborted: aborted}}
+    def handle_call({:set_server_pid, new_server_pid}, _from, state=%{socket: socket, ftp_server_pid: ftp_server_pid, pasv_mode: pasv_mode, aborted: aborted, server_name: server_name}) do
+      {:reply, state, %{socket: socket, ftp_server_pid: new_server_pid, pasv_mode: pasv_mode, aborted: aborted, server_name: server_name}}
     end
 
-    def handle_cast({:retr, file, new_offset} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
+    def handle_cast({:retr, file, new_offset} , state=%{socket: socket, ftp_server_pid: ftp_server_pid, pasv_mode: pasv_mode, aborted: aborted, server_name: server_name}) do
       case pasv_mode do
         true -> :ok
         false -> 
@@ -89,7 +88,7 @@ defmodule FtpData do
       {:noreply, state}
     end
 
-    def handle_cast(:reset_state , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
+    def handle_cast(:reset_state , state=%{socket: socket, ftp_server_pid: ftp_server_pid, pasv_mode: pasv_mode, aborted: aborted, server_name: server_name}) do
       case pasv_mode do
         true -> :ok
         false -> 
@@ -99,7 +98,7 @@ defmodule FtpData do
       {:noreply, state}
     end
 
-    def handle_cast({:stor, to_path} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
+    def handle_cast({:stor, to_path} , state=%{socket: socket, ftp_server_pid: ftp_server_pid, pasv_mode: pasv_mode, aborted: aborted, server_name: server_name}) do
       case pasv_mode do
         true -> :ok
         false -> 
@@ -109,14 +108,14 @@ defmodule FtpData do
       {:noreply, state}
     end
 
-    def handle_cast({:handle_pasv, ip, port} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
+    def handle_cast({:handle_pasv, ip, port} , state=%{socket: socket, ftp_server_pid: ftp_server_pid, pasv_mode: pasv_mode, aborted: aborted, server_name: server_name}) do
       :ranch.start_listener(:pasv_socket, 10, :ranch_tcp, [port: port, ip: ip], FtpPasvSocket, [%{ftp_data_pid: self(), aborted: aborted}])
       pid = Process.get(:ftp_pasv_socket_pid)
-      state=%{socket: socket, server_pid: server_pid, pasv_mode: true, aborted: aborted}
+      state=%{socket: socket, ftp_server_pid: ftp_server_pid, pasv_mode: true, aborted: aborted}
       {:noreply, state}
     end
 
-    def handle_cast({:list, file_info} , state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
+    def handle_cast({:list, file_info} , state=%{socket: socket, ftp_server_pid: ftp_server_pid, pasv_mode: pasv_mode, aborted: aborted, server_name: server_name}) do
       case pasv_mode do
         true ->
           pid = Process.get(:ftp_pasv_socket_pid)
@@ -130,7 +129,7 @@ defmodule FtpData do
       {:noreply, state}
     end
 
-    def handle_cast(:close_data_socket, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
+    def handle_cast(:close_data_socket, state=%{socket: socket, ftp_server_pid: ftp_server_pid, pasv_mode: pasv_mode, aborted: aborted, server_name: server_name}) do
       case pasv_mode do
         true ->
           :ok 
@@ -141,7 +140,7 @@ defmodule FtpData do
       {:noreply, state}
     end
 
-    def handle_cast({:close_data_socket, :abort}, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
+    def handle_cast({:close_data_socket, :abort}, state=%{socket: socket, ftp_server_pid: ftp_server_pid, pasv_mode: pasv_mode, aborted: aborted, server_name: server_name}) do
       case pasv_mode do
         true ->
           :ok 
@@ -149,17 +148,17 @@ defmodule FtpData do
           pid = Process.get(:ftp_active_socket_pid)
           FtpActiveSocket.close_data_socket(pid, :abort)
       end
-      {:noreply, %{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: true}}
+      {:noreply, %{socket: socket, ftp_server_pid: ftp_server_pid, pasv_mode: pasv_mode, aborted: true, server_name: server_name}}
     end
 
-    def handle_cast({:create_socket, new_ip, new_port}, state=%{socket: socket, server_pid: server_pid, pasv_mode: pasv_mode, aborted: aborted}) do
+    def handle_cast({:create_socket, new_ip, new_port}, state=%{socket: socket, ftp_server_pid: ftp_server_pid, pasv_mode: pasv_mode, aborted: aborted, server_name: server_name}) do
       case pasv_mode do
         true ->
           :ok 
         false ->
           logger_debug "Passing this to active socket..."
           pid =
-          case FtpActiveSocket.start_link(%{ftp_data_pid: self(), aborted: false}) do
+          case FtpActiveSocket.start_link(%{ftp_data_pid: self(), aborted: false, server_name: server_name}) do
             {:ok, pid} -> pid
             {:error, {:already_started, pid}} -> pid
           end
@@ -202,12 +201,12 @@ end
     ## HELPER FUNCTIONS
 
     defp message_server(message) do
-      pid = Process.get(:server_pid)
+      pid = Process.get(:ftp_server_pid)
       Kernel.send(pid, {:from_ftp_data, message})
     end
 
     defp logger_debug(message) do
-      pid = Process.get(:server_pid)
+      pid = Process.get(:ftp_server_pid)
       Kernel.send(pid, {:ftp_data_log_message, message})
     end
 

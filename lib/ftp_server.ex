@@ -52,8 +52,7 @@ defmodule FtpServer do
 
     @ftp_NORESPONSE            0
     @ftp_ERRRESPONSE          -1
-
-    @server_name __MODULE__
+    
     require Logger
     use GenServer
 
