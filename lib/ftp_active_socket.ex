@@ -71,13 +71,13 @@ defmodule FtpActiveSocket do
       {:noreply, new_state}
     end
 
-    def handle_cast({:list, file_info} , _state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
+    def handle_cast({:list, file_info} , _state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}) do
       logger_debug "Sending result from LIST command..."
       :gen_tcp.send(socket, file_info)
       logger_debug "Result from LIST command sent. Sent #{inspect file_info}"
       message_ftp_data(:socket_transfer_ok)
       new_socket_state = close_socket(socket)
-      new_state=%{socket: new_socket_state, ftp_data_pid: ftp_data_pid, aborted: aborted}
+      new_state=%{socket: new_socket_state, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}
       {:noreply, new_state}
     end
 

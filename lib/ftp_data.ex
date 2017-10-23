@@ -162,6 +162,7 @@ defmodule FtpData do
             {:ok, pid} -> pid
             {:error, {:already_started, pid}} -> pid
           end
+          logger_debug "This is active socket pid #{inspect pid}..."
           Process.put(:ftp_active_socket_pid, pid)
           FtpActiveSocket.create_socket(pid, new_ip, new_port)
       end

@@ -56,8 +56,8 @@ defmodule FtpServer do
     require Logger
     use GenServer
 
-    def start_link(ref, socket, transport, opts = [%{ftp_logger_pid: ftp_logger_pid, ftp_data_pid: ftp_data_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port, debug: debug, timeout: timeout, restart_time: restart_time}]) do
-        initial_state = %{ftp_logger_pid: ftp_logger_pid, ftp_data_pid: ftp_data_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port, debug: debug, timeout: timeout, restart_time: restart_time, listener_ref: ref, control_socket: socket, transport: transport}
+    def start_link(ref, socket, transport, opts = [%{ftp_logger_pid: ftp_logger_pid, ftp_data_pid: ftp_data_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port, debug: debug, timeout: timeout, restart_time: restart_time, server_name: server_name, limit_viewable_dirs: limit_viewable_dirs}]) do
+        initial_state = %{ftp_logger_pid: ftp_logger_pid, ftp_data_pid: ftp_data_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port, debug: debug, timeout: timeout, restart_time: restart_time, listener_ref: ref, control_socket: socket, transport: transport, server_name: server_name, limit_viewable_dirs: limit_viewable_dirs}
         pid  = :proc_lib.spawn_link(__MODULE__, :init, [ref, socket, transport, initial_state])
         {:ok, pid}
     end
@@ -266,10 +266,11 @@ defmodule FtpServer do
         working_path = determine_path(root_dir, current_client_working_directory, path)
         path_exists = File.exists?(working_path)
         have_read_access = allowed_to_read(working_path)
+        have_write_access = allowed_to_write(working_path)
 
         cond do
             path_exists == true -> {@ftp_FILEFAIL, "Current directory '#{path}' already exists."}
-            have_read_access == false -> {@ftp_NOPERM, "You don't have permission to create this directory ('#{path}')."}
+            have_read_access == false || have_write_access == false -> {@ftp_NOPERM, "You don't have permission to create this directory ('#{path}')."}
             true ->
                 File.mkdir(working_path)
                 {@ftp_MKDIROK, "Successfully created directory '#{path}'"}
@@ -630,7 +631,13 @@ defmodule FtpServer do
     """
     def do_list(working_path) do
         ftp_data_pid = get(:ftp_data_pid)
+        viewable = get(:limit_viewable_dirs) |> Map.get(:enabled)
         {:ok, files} = File.ls(working_path)
+        files = 
+        case viewable do
+            true -> remove_hidden_folders(working_path, files)
+            false -> files
+        end
         file_info = get_info(working_path, files)
         file_info = Enum.join([file_info, "\r\n"])
         send_message(@ftp_DATACONN, "Opening Data Socket for transfer of ls command...")
@@ -638,6 +645,33 @@ defmodule FtpServer do
         port = get(:data_port)
         FtpData.create_socket(ftp_data_pid, ip, port)
         FtpData.list(ftp_data_pid, file_info)
+    end
+
+
+    def remove_hidden_folders(path, files) do
+        root_dir = get(:root_dir)
+        viewable_dirs = get(:limit_viewable_dirs) |> Map.get(:viewable_dirs)
+        files = 
+        for file <- files do
+            Path.join([path, file]) ## prepend the root_dir to each file
+        end
+        viewable_dirs =
+        for item <- viewable_dirs do
+            file = elem(item, 0)
+            Path.join([root_dir, file]) ## prepend the root_dir to each viewable path
+        end
+
+        list = 
+        for viewable_dir <- viewable_dirs do
+            for file <- files do 
+                case (file == String.trim_leading(file, viewable_dir)) do
+                    true -> nil
+                    false -> String.trim_leading(file, path) |> String.trim_leading("/") ## remove the prepended `path` (and `\`) from the file so we can return the original file
+                end
+            end
+        end
+
+        List.flatten(list) |> Enum.filter(fn(x) -> x != nil end ) ## flatten list and remove the `nil` values from the list
     end
     
     
@@ -650,17 +684,66 @@ defmodule FtpServer do
     """
     def allowed_to_read(current_path) do
         root_dir = get(:root_dir)
-        case (current_path == root_dir) do
-        true -> 
-            true
-        false ->
-            case (current_path == String.trim_leading(current_path, root_dir)) do
-            true -> false
-            false -> true
-            end
+        %{enabled: enabled, viewable_dirs: viewable_dirs } = get(:limit_viewable_dirs)
+        cond do
+            ( is_within_directory(root_dir, current_path) == false ) -> false
+            ( is_within_viewable_dirs(viewable_dirs, current_path) == false ) -> false
+            true -> true
         end
+    end
 
-        true
+    def is_within_viewable_dirs(viewable_dirs, current_path) do
+        root_dir = get(:root_dir)
+        list = 
+        for item <- viewable_dirs do
+            dir = elem(item, 0)
+            dir = Path.join([root_dir, dir])
+            is_within_directory(dir, current_path)
+        end
+        |> Enum.filter(fn(x) -> x == true end )
+
+        IO.puts "This is new list #{inspect list}"
+        case list do
+            [] -> false 
+            _ -> true
+        end
+    end
+
+    def is_within_writeable_dirs(viewable_dirs, current_path) do
+        root_dir = get(:root_dir)
+        list = 
+        for {dir, access} <- viewable_dirs do
+            case access do 
+                :rw ->
+                    dir = Path.join([root_dir, dir])
+                    is_within_directory(dir, current_path)
+                :ro ->
+                    false
+            end
+            
+        end
+        |> Enum.filter(fn(x) -> x == true end )
+
+        IO.puts "This is new list #{inspect list}"
+        case list do
+            [] -> false 
+            _ -> true
+        end
+    end
+
+
+    def is_within_directory(root_dir, current_path) do
+        case (current_path == root_dir) do
+            true -> 
+                true
+            false ->
+                case (current_path == String.trim_leading(current_path, root_dir)) do
+                    true -> 
+                        IO.puts "#{current_path} is not in #{root_dir}"
+                        false
+                    false -> true
+                end
+        end
     end
 
 
@@ -668,7 +751,13 @@ defmodule FtpServer do
     Function used to determine if a user is allowed to write to the `current_path`
     """
     def allowed_to_write(current_path) do
-        true
+        root_dir = get(:root_dir)
+        %{enabled: enabled, viewable_dirs: viewable_dirs } = get(:limit_viewable_dirs)
+        cond do
+            ( is_within_directory(root_dir, current_path) == false ) -> false
+            ( is_within_writeable_dirs(viewable_dirs, current_path) == false ) -> false
+            true -> true
+        end
     end
 
     
@@ -864,7 +953,9 @@ defmodule FtpServer do
             in_pasv_mode: false,
             aborted: false,
             listener_ref: Map.get(args, :listener_ref),
-            ftp_logger_pid: Map.get(args, :ftp_logger_pid)
+            ftp_logger_pid: Map.get(args, :ftp_logger_pid),
+            server_name: Map.get(args, :server_name),
+            limit_viewable_dirs: Map.get(args, :limit_viewable_dirs)
         }
         Process.put(:data_dictionary, initial_state)
         logger_debug "DD Set Up #{inspect get()}..."
