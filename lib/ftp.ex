@@ -18,8 +18,8 @@ defmodule Ftp do
     `name`: A name to uniquely identify this instance of the server as `String`\n
     `ip`: An ip address as `String`\n
     `port:` The port number server will run on\n
-    `root_directory`: The root directory the server will run from and display to user.\n
-    `limit_viewable_dirs`: A `Struct` that contains items.\n  1. `enabled`: A `true` or `false` boolean to specify whether or not the limit_viewable_dirs option is being used.
+    `root_directory`: The root directory the server will run from and display to user. Given as an absolute path in the form of a `String`.\n
+    `limit_viewable_dirs`: A `Map` that contains items.\n  1. `enabled`: A `true` or `false` boolean to specify whether or not the limit_viewable_dirs option is being used.
     If this is set to `false`, then all of the directories listed as the only viewable directories will be ignored, and all directories will be viewable to the user. Default
     is `false`.\n  2. `viewable_dirs`: A `List` that contains all of the directories you would like to be available to users. Note, path needs to be given relative to the 
     `root_directory`, and not as absolute paths. E.g., given `root_directory` is "/var/system" and the path you want to specify is "/var/system/test", then 
@@ -86,9 +86,11 @@ defmodule Ftp do
     end
 
     def is_read_only_dir(path) do
-        case (path == String.trim_leading(path, "/var/system")) do
-            true -> true
-            false -> false
+        {:ok, info} = File.stat(path)
+        case Map.get(info, :access) do
+            :read -> true
+            :none -> true
+            _ -> false
         end
     end
 

@@ -771,7 +771,21 @@ defmodule FtpServer do
         cond do
             ( is_within_directory(root_dir, current_path) == false ) -> false
             ( is_within_writeable_dirs(viewable_dirs, current_path) == false ) -> false
+            ( is_read_only_dir(current_path) == true ) -> false
             true -> true
+        end
+    end
+
+
+    @doc """
+    Function to check is `path` is part of the machines own read-only  filesystem
+    """
+    def is_read_only_dir(path) do
+        {:ok, info} = File.stat(path)
+        case Map.get(info, :access) do
+            :read -> true
+            :none -> true
+            _ -> false
         end
     end
 
