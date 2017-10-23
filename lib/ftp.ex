@@ -19,6 +19,12 @@ defmodule Ftp do
     `ip`: An ip address as `String`\n
     `port:` The port number server will run on\n
     `root_directory`: The root directory the server will run from and display to user.\n
+    `limit_viewable_dirs`: A `Struct` that contains items.\n  1. `enabled`: A `true` or `false` boolean to specify whether or not the limit_viewable_dirs option is being used.
+    If this is set to `false`, then all of the directories listed as the only viewable directories will be ignored, and all directories will be viewable to the user. Default
+    is `false`.\n  2. `viewable_dirs`: A `List` that contains all of the directories you would like to be available to users. Note, path needs to be given relative to the 
+    `root_directory`, and not as absolute paths. E.g., given `root_directory` is "/var/system" and the path you want to specify is "/var/system/test", then 
+    you would just specify it as "test".\n    2.1 Each entry into the `viewable_dirs` list should be a `Tuple` of the following format: {`directory`, `access`}, where `directory`
+    is the directory name (relative to `root_directory` as mentioned above) given as a `String`, and `access` is an atom of either `:rw` or `:ro`.\n
     `username`: The username needed to log into the server. Is \"apc\" by default.\n
     `password`: The password needed to log into the server. Is \"apc\" by default.\n
     `log_file_directory`: The directory where the log file will be stored. Is \"/var/system/priv/log/ftp\" by default.\n
@@ -68,8 +74,8 @@ defmodule Ftp do
             dir = elem(item, 0)
             path = Path.join([rootdir, dir])
             case File.exists?(path) do
-                true -> 
-                :ok
+                true ->
+                    :ok
                 false -> 
                     Logger.error("Viewable dir: #{path} does not exist.")
                     Process.put(:valid_view_able_dirs, false)
@@ -86,7 +92,7 @@ defmodule Ftp do
         end
     end
 
-    def dummy() do
+    def sample() do
         limit_viewable_dirs = %{
             enabled: true,
             viewable_dirs: [
@@ -95,7 +101,6 @@ defmodule Ftp do
             ]
         }
         start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input", limit_viewable_dirs)
-        #start_server("uc2", "127.0.0.1", 2122, "/home/user")
     end
      
     

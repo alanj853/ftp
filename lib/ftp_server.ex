@@ -221,11 +221,12 @@ defmodule FtpServer do
         path_exists = File.exists?(working_path)
         is_directory = File.dir?(working_path)
         have_read_access = allowed_to_read(working_path)
+        have_write_access = allowed_to_write(working_path)
 
         cond do
             is_directory == true -> {@ftp_FILEFAIL, "Current path '#{path}' is a directory."}
             path_exists == false -> {@ftp_FILEFAIL, "Current directory '#{path}' does not exist."}
-            have_read_access == false -> {@ftp_NOPERM, "You don't have permission to delete this file ('#{path}')."}
+            have_read_access == false || have_write_access == false -> {@ftp_NOPERM, "You don't have permission to delete this file ('#{path}')."}
             true ->
                 File.rm(working_path)
                 {@ftp_DELEOK, "Successfully deleted file '#{path}'"}
@@ -244,11 +245,12 @@ defmodule FtpServer do
         path_exists = File.exists?(working_path)
         is_directory = File.dir?(working_path)
         have_read_access = allowed_to_read(working_path)
+        have_write_access = allowed_to_write(working_path)
 
         cond do
             is_directory == false -> {@ftp_FILEFAIL, "Current path '#{path}' is not a directory."}
             path_exists == false -> {@ftp_FILEFAIL, "Current directory '#{path}' does not exist."}
-            have_read_access == false -> {@ftp_NOPERM, "You don't have permission to delete this file ('#{path}')."}
+            have_read_access == false || have_write_access == false -> {@ftp_NOPERM, "You don't have permission to delete this folder ('#{path}')."}
             true ->
                 File.rmdir(working_path)
                 {@ftp_RMDIROK, "Successfully deleted directory '#{path}'"}
@@ -648,6 +650,10 @@ defmodule FtpServer do
     end
 
 
+    @doc """
+    Function to remove the hidden folders from the returned list from `File.ls` command,
+    and only show the files specified in the `limit_viewable_dirs` struct.
+    """
     def remove_hidden_folders(path, files) do
         root_dir = get(:root_dir)
         viewable_dirs = get(:limit_viewable_dirs) |> Map.get(:viewable_dirs)
@@ -687,11 +693,16 @@ defmodule FtpServer do
         %{enabled: enabled, viewable_dirs: viewable_dirs } = get(:limit_viewable_dirs)
         cond do
             ( is_within_directory(root_dir, current_path) == false ) -> false
-            ( is_within_viewable_dirs(viewable_dirs, current_path) == false ) -> false
+            ( (is_within_viewable_dirs(viewable_dirs, current_path) == false) && current_path != root_dir ) -> false
             true -> true
         end
     end
 
+    
+    @doc """
+    Function to check if `current_path` is within any of the directories specified
+    in the `viewable_dirs` list. 
+    """
     def is_within_viewable_dirs(viewable_dirs, current_path) do
         root_dir = get(:root_dir)
         list = 
@@ -700,15 +711,19 @@ defmodule FtpServer do
             dir = Path.join([root_dir, dir])
             is_within_directory(dir, current_path)
         end
-        |> Enum.filter(fn(x) -> x == true end )
+        |> Enum.filter(fn(x) -> x == true end ) ## filter out all of the `true` values in the list
 
-        IO.puts "This is new list #{inspect list}"
         case list do
-            [] -> false 
+            [] -> false ## if no `true` values were returned (i.e. empty list), then `current_path` is not readable
             _ -> true
         end
     end
 
+
+    @doc """
+    Function to check if `current_path` is within any of the directories specified
+    in the `viewable_dirs` list. Only checks directories with `:rw` permissions
+    """
     def is_within_writeable_dirs(viewable_dirs, current_path) do
         root_dir = get(:root_dir)
         list = 
@@ -722,25 +737,25 @@ defmodule FtpServer do
             end
             
         end
-        |> Enum.filter(fn(x) -> x == true end )
+        |> Enum.filter(fn(x) -> x == true end ) ## filter out all of the `true` values in the list
 
-        IO.puts "This is new list #{inspect list}"
         case list do
-            [] -> false 
+            [] -> false ## if no `true` values were returned (i.e. empty list), then `current_path` is not writeable
             _ -> true
         end
     end
 
 
+    @doc """
+    Function to check if `current_path` is within `root_dir`
+    """
     def is_within_directory(root_dir, current_path) do
         case (current_path == root_dir) do
             true -> 
                 true
             false ->
                 case (current_path == String.trim_leading(current_path, root_dir)) do
-                    true -> 
-                        IO.puts "#{current_path} is not in #{root_dir}"
-                        false
+                    true -> false
                     false -> true
                 end
         end

@@ -20,7 +20,7 @@ defmodule FtpLogger do
             :desktop -> 
                 Logger.info("We're on a desktop. Every debug message will be logged with Logger.debug and also logged to #{inspect @desktop_logfile}")
                 log_file_bak = String.trim_trailing(@desktop_logfile, ".txt")
-                log_file_bak = Enum.join([log_file_bak, "_bak.txt"])
+                log_file_bak = Enum.join([log_file_bak, "1.txt"])
                 case File.exists?(@desktop_logfile) do
                     true -> File.copy(@desktop_logfile, log_file_bak )
                     false -> :ok
@@ -28,7 +28,7 @@ defmodule FtpLogger do
             other_machine -> 
                 Logger.info("We're on an #{inspect other_machine}. Every debug message will be logged with Logger.info and also logged to #{inspect log_file}")
                 log_file_bak = String.trim_trailing(log_file, ".txt")
-                log_file_bak = Enum.join([log_file_bak, "_bak.txt"])
+                log_file_bak = Enum.join([log_file_bak, "1.txt"])
                 case File.exists?(log_file) do
                     true -> File.copy(log_file, log_file_bak )
                     false -> :ok
