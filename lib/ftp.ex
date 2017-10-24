@@ -107,6 +107,27 @@ defmodule Ftp do
         }
         start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input", limit_viewable_dirs)
     end
+
+    def close_server(name) do
+        ## Kill main supervisor
+        supervisor_pid = Enum.join([name, "_ftp_supervisor"]) |> String.to_atom |> Process.whereis
+        case supervisor_pid do
+            nil -> 
+                Logger.error "Ftp server of name '#{name}' does not exist."
+            _ -> 
+                sup = Enum.join([name, "_ftp_supervisor"]) |> String.to_atom
+                sub_sup = Enum.join([name, "_ftp_sub_supervisor"]) |> String.to_atom  |> Process.whereis
+                data = Enum.join([name, "_ftp_data"]) |> String.to_atom  |> Process.whereis
+                logger = Enum.join([name, "_ftp_logger"]) |> String.to_atom  |> Process.whereis
+        
+                Supervisor.terminate_child(sup, sub_sup)
+                Supervisor.terminate_child(sup, data)
+                Supervisor.terminate_child(sup, logger)
+        
+                Supervisor.stop(sup)
+        end
+
+    end
      
     
 end
