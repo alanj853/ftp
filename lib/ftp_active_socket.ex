@@ -87,6 +87,7 @@ defmodule FtpActiveSocket do
 
     def handle_info({:send, {socket, file, file_info, new_offset, bytes, transmission_number}}, state) do
       aborted = Map.get(state, :aborted)
+      server_name = Map.get(state, :server_name)
       new_socket =
       case aborted do
         false ->
