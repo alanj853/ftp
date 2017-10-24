@@ -99,7 +99,7 @@ defmodule FtpActiveSocket do
           new_socket
       end
       ftp_data_pid =  Process.get(:ftp_data_pid)
-      {:noreply, %{socket: new_socket, ftp_data_pid: ftp_data_pid, aborted: aborted}}
+      {:noreply, %{socket: new_socket, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}}
     end
 
     def transfer_info(file, chunk_size, offset) do
@@ -152,7 +152,7 @@ defmodule FtpActiveSocket do
     def handle_call({:close_data_socket, :abort}, _from, state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: _aborted, server_name: server_name}) do
       logger_debug "Closing Data Socket (due to abort command)..."
       #new_socket_state = close_socket(socket)
-      new_state = %{socket: socket, ftp_data_pid: ftp_data_pid, aborted: true}
+      new_state = %{socket: socket, ftp_data_pid: ftp_data_pid, aborted: true, server_name: server_name}
       {:reply, state, new_state}
     end
 
