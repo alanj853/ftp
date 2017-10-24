@@ -55,9 +55,9 @@ defmodule Ftp do
         cond do
             ( File.exists?(root_directory) == false ) -> "#{inspect root_directory} does not exist"
             ( File.dir?(root_directory) == false ) -> "#{inspect root_directory} exists but it is not a directory"
-            ( File.exists?(log_file_directory) == false ) && ( machine == :nmc3 ) -> "#{inspect log_file_directory} does not exist"
-            ( is_read_only_dir(root_directory) == true ) && ( machine == :nmc3 ) -> "#{inspect root_directory}  is part of the RO filesystem"
-            ( is_read_only_dir(log_file_directory) == true ) && ( machine == :nmc3 ) -> "#{inspect log_file_directory} is part of the RO filesystem"
+            ( machine == :nmc3 ) && ( File.exists?(log_file_directory) == false ) -> "#{inspect log_file_directory} does not exist"
+            ( machine == :nmc3 ) && ( is_read_only_dir(root_directory) == true ) -> "#{inspect root_directory}  is part of the RO filesystem"
+            ( machine == :nmc3 ) && ( is_read_only_dir(log_file_directory) == true ) -> "#{inspect log_file_directory} is part of the RO filesystem"
             ( Map.get(limit_viewable_dirs, :enabled) == true ) && ( valid_viewable_dirs(root_directory , Map.get(limit_viewable_dirs, :viewable_dirs)) == false ) -> "Invalid viewable directories listed"
             true -> :ok_to_start   
         end
