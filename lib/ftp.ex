@@ -38,8 +38,11 @@ defmodule Ftp do
         machine = get_machine_type()
         result = pre_run_checks(ip, port, root_directory, limit_viewable_dirs, log_file_directory, machine)
         case result do
-            :ok_to_start -> FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password, log_file_directory: log_file_directory, debug: debug, machine: machine, server_name: name, limit_viewable_dirs: limit_viewable_dirs})
-            error -> Logger.error("NOT STARTING FTP SERVER '#{name}'. #{inspect error}")
+            :ok_to_start -> 
+                FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password, log_file_directory: log_file_directory, debug: debug, machine: machine, server_name: name, limit_viewable_dirs: limit_viewable_dirs})
+            error -> 
+                Logger.error("NOT STARTING FTP SERVER '#{name}'. #{inspect error}")
+                {:error, error}
         end
     end
 
