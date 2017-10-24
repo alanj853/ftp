@@ -105,7 +105,8 @@ defmodule Ftp do
                 {"waveforms", :ro}
             ]
         }
-        start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input", limit_viewable_dirs)
+        #start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input", limit_viewable_dirs)
+        start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input")
     end
 
     def close_server(name) do

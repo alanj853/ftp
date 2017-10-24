@@ -693,7 +693,7 @@ defmodule FtpServer do
         %{enabled: enabled, viewable_dirs: viewable_dirs } = get(:limit_viewable_dirs)
         cond do
             ( is_within_directory(root_dir, current_path) == false ) -> false
-            ( (is_within_viewable_dirs(viewable_dirs, current_path) == false) && current_path != root_dir ) -> false
+            ( enabled == true && (is_within_viewable_dirs(viewable_dirs, current_path) == false) && current_path != root_dir ) -> false
             true -> true
         end
     end
@@ -770,7 +770,7 @@ defmodule FtpServer do
         %{enabled: enabled, viewable_dirs: viewable_dirs } = get(:limit_viewable_dirs)
         cond do
             ( is_within_directory(root_dir, current_path) == false ) -> false
-            ( is_within_writeable_dirs(viewable_dirs, current_path) == false ) -> false
+            ( enabled == true && is_within_writeable_dirs(viewable_dirs, current_path) == false ) -> false
             ( is_read_only_dir(current_path) == true ) -> false
             true -> true
         end
