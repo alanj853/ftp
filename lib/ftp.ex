@@ -55,12 +55,24 @@ defmodule Ftp do
         cond do
             ( File.exists?(root_directory) == false ) -> "#{inspect root_directory} does not exist"
             ( File.dir?(root_directory) == false ) -> "#{inspect root_directory} exists but it is not a directory"
-            ( machine == :nmc3 ) && ( File.exists?(log_file_directory) == false ) -> "#{inspect log_file_directory} does not exist"
+            ( machine == :nmc3 ) && ( create_log_file_dir(log_file_directory) == false ) -> "Cannot create log file directory #{inspect log_file_directory}"
             ( machine == :nmc3 ) && ( is_read_only_dir(root_directory) == true ) -> "#{inspect root_directory}  is part of the RO filesystem"
             ( machine == :nmc3 ) && ( is_read_only_dir(log_file_directory) == true ) -> "#{inspect log_file_directory} is part of the RO filesystem"
             ( Map.get(limit_viewable_dirs, :enabled) == true ) && ( valid_viewable_dirs(root_directory , Map.get(limit_viewable_dirs, :viewable_dirs)) == false ) -> "Invalid viewable directories listed"
             true -> :ok_to_start   
         end
+    end
+
+    defp create_log_file_dir(path) do
+        case File.mkdir(path) do
+            :ok ->
+                true
+            {:error, :eexist} ->
+                true
+            {:error, reason} ->
+                Logger.error("Error creating log file directory. Reason #{inspect reason}")
+                false
+        end 
     end
 
     defp get_machine_type() do
