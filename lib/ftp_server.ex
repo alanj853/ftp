@@ -40,6 +40,7 @@ defmodule FtpServer do
     @ftp_TRANSFERABORTED     426
     @ftp_BADSENDFILE         451
     @ftp_BADCMD              500
+    @ftp_OPTSFAIL            501
     @ftp_COMMANDNOTIMPL      502
     @ftp_NEEDUSER            503
     @ftp_NEEDRNFR            503
@@ -50,8 +51,11 @@ defmodule FtpServer do
     @ftp_NOPERM              550
     @ftp_UPLOADFAIL          553
 
+    @ftp_REPLYMYSELF           0
     @ftp_NORESPONSE            0
     @ftp_ERRRESPONSE          -1
+
+    @special_content           1
     
     require Logger
     use GenServer
@@ -75,8 +79,8 @@ defmodule FtpServer do
         set_socket_option(socket, :keepalive, true, false) ## we don't want control socket to close due to an inactivity timeout while a transfer is on-going on the data socket
         socket_status = Port.info(socket)
         logger_debug("Got Connection. Socket status: #{inspect socket_status}", :comm)
-        send_message(@ftp_OK, "Welcome to FTP Server", false)
-
+        send_message(@ftp_GREET, "Welcome to FTP Server", false)
+        
         case :ranch_tcp.setopts(socket, [active: true]) do
             :ok -> logger_debug("Socket successfully set to active", :comm)
             {:error, reason} -> logger_debug("Socket not set to active. Reason #{reason}", :comm)
@@ -195,6 +199,8 @@ defmodule FtpServer do
             String.contains?(command, "REST") == true -> handle_rest(command)
             String.contains?(command, "MODE") == true -> handle_mode(command)
             String.contains?(command, "ABOR") == true -> handle_abor(command)
+            String.contains?(command, "HELP") == true -> handle_help(command)
+            String.contains?(command, "OPTS") == true -> handle_opts(command)
             #command_not_implemented(command) == true -> {@ftp_COMMANDNOTIMPL, "Command '#{inspect command}' not implemented on this server"}
             true -> {@ftp_ERRRESPONSE, "Junk Command"}
         end
@@ -207,6 +213,28 @@ defmodule FtpServer do
                 close_socket(socket)
             _ -> send_message(code, response)
         end
+    end
+
+
+    @doc """
+    Function to handle help commands. Still needs work for providing useful feedback
+    """
+    def handle_help(command) do
+        case command do
+            "HELP\r\n" ->
+                {@ftp_HELP,"This is the help menu for the Elixir FTP Server"}
+            _ ->
+                "HELP " <> queried_command = command |> String.trim()
+                {@ftp_HELP, "Currently, a help menu has not been implemented for '#{queried_command}'"}
+        end
+    end
+
+
+    @doc """
+    Function to handle opts commands. Still needs work for providing useful feedback
+    """
+    def handle_opts(command) do
+        {@ftp_OPTSFAIL, "OPTS is fully not supported yet"}
     end
 
 
@@ -483,7 +511,7 @@ defmodule FtpServer do
                 ip = to_charlist(ip)
                 FtpData.create_socket(ftp_data_pid, ip, port)
                 FtpData.stor(ftp_data_pid, working_path)
-                {@ftp_NORESPONSE, :ok}
+                {@ftp_REPLYMYSELF, :ok}
             false ->
                 {@ftp_NOPERM, "You don't have permission to write to this directory ('#{path}')."}
         end
@@ -518,7 +546,7 @@ defmodule FtpServer do
                 ip = to_charlist(ip)
                 FtpData.create_socket(ftp_data_pid, ip, port)
                 FtpData.retr(ftp_data_pid, working_path, offset)
-                {@ftp_NORESPONSE, :ok}
+                {@ftp_REPLYMYSELF, :ok}
         end
     end
 
@@ -609,7 +637,12 @@ defmodule FtpServer do
     """
     def send_message(code, msg, socket_mode \\ true) do
         socket = get(:control_socket)
-        message = Enum.join([to_string(code), " " , msg, "\r\n"])
+        
+        message =
+        case code do
+            @special_content -> msg ## don't prepend the message with a code
+            _ -> Enum.join([to_string(code), " " , msg, "\r\n"])
+        end 
 
         ## temporarily set to false so we can send messages
         set_socket_option(socket, :active, false)
@@ -1010,8 +1043,7 @@ defmodule FtpServer do
                     true -> :ok
                     false -> logger_debug "#{inspect option}  not set. Reason #{reason}"
                 end
-        end
-        
+        end  
     end
 
 end
