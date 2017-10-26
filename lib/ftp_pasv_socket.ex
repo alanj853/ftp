@@ -7,8 +7,9 @@ defmodule FtpPasvSocket do
 
     @server_name __MODULE__
     
-    def start_link(ref, socket, transport, opts = [%{ftp_data_pid: ftp_data_pid, aborted: aborted, socket: initial_socket}]) do
-        initial_state = %{ftp_data_pid: ftp_data_pid, aborted: aborted, socket: socket}
+    def start_link(ref, socket, transport, opts = [%{ftp_data_pid: ftp_data_pid, aborted: aborted, socket: initial_socket, server_name: server_name}]) do
+        new_server_name = Enum.join([server_name, "_", "ftp_pasv_socket"])
+        initial_state = %{ftp_data_pid: ftp_data_pid, aborted: aborted, socket: socket, server_name: new_server_name}
         pid  = :proc_lib.spawn_link(__MODULE__, :init, [ref, socket, transport, initial_state])
         {:ok, pid}
     end
@@ -44,13 +45,13 @@ defmodule FtpPasvSocket do
         GenServer.cast pid, {:stor, to_path}
     end
     
-    def handle_call({:close_data_socket, :abort}, _from, state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: _aborted}) do
+    def handle_call({:close_data_socket, :abort}, _from, state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: _aborted, server_name: server_name}) do
         logger_debug "Closing Data Socket (due to abort command)..."
-        new_state = %{socket: socket, ftp_data_pid: ftp_data_pid, aborted: true}
+        new_state = %{socket: socket, ftp_data_pid: ftp_data_pid, aborted: true, server_name: server_name}
         {:reply, state, new_state}
     end
 
-    def handle_cast({:stor, to_path} , state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted}) do
+    def handle_cast({:stor, to_path} , state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}) do
         logger_debug "Receiving file..."
         {:ok, file} = receive_file(socket)
         logger_debug("This is packet: #{inspect file}")
