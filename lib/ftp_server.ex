@@ -125,7 +125,8 @@ defmodule FtpServer do
         ftp_data_pid = get(:ftp_data_pid)
         logger_debug "This is msg: #{inspect msg}"
         case msg do
-            :socket_transfer_ok -> send_message(@ftp_TRANSFEROK, "Transfer Complete")
+            :socket_transfer_ok -> 
+                send_message(@ftp_TRANSFEROK, "Transfer Complete")
             :socket_transfer_failed -> 
                 was_aborted = FtpData.get_state(ftp_data_pid) |> Map.get(:aborted)
                 case was_aborted do
@@ -328,15 +329,18 @@ defmodule FtpServer do
     Function to handle pasv command
     """
     def handle_pasv(_command) do
-        ftp_data_pid = get(:ftp_data_pid)
-        p1 = 100 # :random.uniform(250)
-        p2 = 150 #:random.uniform(250)
+        p1 = :random.uniform(230)
+        p2 = :random.uniform(230)
         port_number = p1*256 + p2
+        ftp_data_pid = get(:ftp_data_pid)
         ip = get(:control_ip)
+        put(:data_ip, "127.0.0.1") ## update data socket info with new ip
+        put(:data_port, port_number) ## update data socket info with new port_number
         {h1, h2, h3, h4} = ip
         FtpData.pasv(ftp_data_pid, ip, port_number)
-        logger_debug "This is control ip: #{inspect ip}"
-        {@ftp_PASVOK, "Entering Passive Mode (#{inspect h1},#{inspect h2},#{inspect h3},#{inspect h4},#{inspect p1},#{inspect p2})."}
+        :timer.sleep(100) ## need to sleep to give ranch time to create socket
+        send_message(@ftp_PASVOK, "Entering Passive Mode (#{inspect h1},#{inspect h2},#{inspect h3},#{inspect h4},#{inspect p1},#{inspect p2})")
+        {@ftp_REPLYMYSELF, ""}
     end
 
     
@@ -500,7 +504,7 @@ defmodule FtpServer do
 
         working_path = determine_path(root_dir, current_client_working_directory, path)
 
-        case allowed_to_write(working_path) do
+        case allowed_to_stor(working_path) do
             true ->
                 logger_debug "working_dir: #{working_path}"
                 case File.exists?(working_path) do
@@ -807,6 +811,16 @@ defmodule FtpServer do
             ( is_read_only_dir(current_path) == true ) -> false
             true -> true
         end
+    end
+
+
+    @doc """
+    Function used to determine if a user is allowed to write a file in the the `file_path`
+    """
+    def allowed_to_stor(file_path) do
+        file_name = String.split(file_path, "/") |> List.last
+        parent_folder = String.trim_trailing(file_path, file_name)
+        allowed_to_write(parent_folder)
     end
 
 
