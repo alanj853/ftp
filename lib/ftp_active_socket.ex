@@ -4,6 +4,8 @@ defmodule FtpActiveSocket do
     """
     require Logger
     use GenServer
+
+    @chunk_size 2048
     
     def start_link(_state = %{ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}) do
         name = Enum.join([server_name, "_ftp_active_socket"]) |> String.to_atom
@@ -50,9 +52,9 @@ defmodule FtpActiveSocket do
     end
 
     def handle_cast({:retr, file, new_offset} , _state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}) do
-      file_info = transfer_info(file, 512, new_offset)
+      file_info = transfer_info(file, @chunk_size, new_offset)
       logger_debug "Sending file (#{inspect file_info})..."
-      send_file(socket, file, file_info, new_offset, 512, 1)
+      send_file(socket, file, file_info, new_offset, @chunk_size, 1)
       new_state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}
       {:noreply, new_state}
     end
@@ -112,14 +114,41 @@ defmodule FtpActiveSocket do
       %{file_size: file_size, transmissions: no_transmissions_needed, last_transmission_size: last_transmission_size}
     end
 
-    defp send_file(socket, file, file_info, offset, bytes, transmission_number) do
+  def get_transfer_status(t, no_transmissions) do
+      t1 = no_transmissions*(1/10) |> Float.floor
+      t2 = no_transmissions*(2/10) |> Float.floor
+      t3 = no_transmissions*(3/10) |> Float.floor
+      t4 = no_transmissions*(4/10) |> Float.floor
+      t5 = no_transmissions*(5/10) |> Float.floor
+      t6 = no_transmissions*(6/10) |> Float.floor
+      t7 = no_transmissions*(7/10) |> Float.floor
+      t8 = no_transmissions*(8/10) |> Float.floor
+      t9 = no_transmissions*(9/10) |> Float.floor
+      
       cond do
-        transmission_number == (Map.get(file_info,:transmissions)+1) ->
-          logger_debug "file sent"
+          t == t1 -> "10%"
+          t == t2 -> "20%"
+          t == t3 -> "30%"
+          t == t4 -> "40%"
+          t == t5 -> "50%"
+          t == t6 -> "60%"
+          t == t7 -> "70%"
+          t == t8 -> "80%"
+          t == t9 -> "90%"
+          true -> :no_status
+      end
+  end
+
+    defp send_file(socket, file, file_info, offset, bytes, transmission_number) do
+      no_transmissions = Map.get(file_info,:transmissions)
+      status = get_transfer_status(transmission_number, no_transmissions)
+      cond do
+        transmission_number == (no_transmissions+1) ->
+          logger_debug "File Sent"
           message_ftp_data(:socket_transfer_ok)
           close_socket(socket)
           :whole_file_sent
-        transmission_number == (Map.get(file_info,:transmissions)) -> 
+        transmission_number == no_transmissions -> 
           bytes = Map.get(file_info,:last_transmission_size)
           send_chunk(socket, file, offset, bytes)
           new_offset = offset+bytes
@@ -127,6 +156,10 @@ defmodule FtpActiveSocket do
           Kernel.send(self(), {:send, {socket, file, file_info, new_offset, bytes, transmission_number}}) 
         true ->
           send_chunk(socket, file, offset, bytes)
+          case status do
+              :no_status -> :ok
+              _ -> logger_debug "File Transfer status #{status}"
+          end
           new_offset = offset+bytes
           transmission_number = transmission_number+1
           Kernel.send(self(), {:send, {socket, file, file_info, new_offset, bytes, transmission_number}}) 
