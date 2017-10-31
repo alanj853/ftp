@@ -133,7 +133,7 @@ defmodule FtpServer do
                     true -> #:ok
                         send_message(@ftp_TRANSFERABORTED, "Connection closed; transfer aborted.")
                         send_message(@ftp_ABORTOK, "ABOR command successful")
-                        FtpData.reset_state(ftp_data_pid)
+                        reset_state()
                     false -> send_message(@ftp_FILEFAIL, "Transfer Failed")
                 end
             :socket_close_ok -> 1#send_message(@ftp_TRANSFEROK, "Transfer Complete", socket)
@@ -337,7 +337,7 @@ defmodule FtpServer do
         put(:data_ip, "127.0.0.1") ## update data socket info with new ip
         put(:data_port, port_number) ## update data socket info with new port_number
         {h1, h2, h3, h4} = ip
-        FtpData.pasv(ftp_data_pid, ip, port_number)
+        pasv(ip, port_number)
         :timer.sleep(100) ## need to sleep to give ranch time to create socket
         send_message(@ftp_PASVOK, "Entering Passive Mode (#{inspect h1},#{inspect h2},#{inspect h3},#{inspect h4},#{inspect p1},#{inspect p2})")
         {@ftp_REPLYMYSELF, ""}
@@ -349,8 +349,7 @@ defmodule FtpServer do
     """
     def handle_abor(_command) do
         logger_debug "Handling abort.."
-        pid = get(:ftp_data_pid)
-        FtpData.close_data_socket(pid, :abort)
+        abort()
         {@ftp_NORESPONSE, :ok}
     end
 
@@ -513,8 +512,8 @@ defmodule FtpServer do
                 end
                 send_message(@ftp_DATACONN, "Opening Data Socket to receive file...")
                 ip = to_charlist(ip)
-                FtpData.create_socket(ftp_data_pid, ip, port)
-                FtpData.stor(ftp_data_pid, working_path)
+                create_socket(ip, port)
+                stor(working_path)
                 {@ftp_REPLYMYSELF, :ok}
             false ->
                 {@ftp_NOPERM, "You don't have permission to write to this directory ('#{path}')."}
@@ -548,8 +547,8 @@ defmodule FtpServer do
             true ->
                 send_message(@ftp_DATACONN, "Opening Data Socket for transfer of file #{path} from offset #{offset}...")
                 ip = to_charlist(ip)
-                FtpData.create_socket(ftp_data_pid, ip, port)
-                FtpData.retr(ftp_data_pid, working_path, offset)
+                create_socket(ip, port)
+                retr(working_path, offset)
                 {@ftp_REPLYMYSELF, :ok}
         end
     end
@@ -682,8 +681,8 @@ defmodule FtpServer do
         send_message(@ftp_DATACONN, "Opening Data Socket for transfer of ls command...")
         ip = get(:data_ip) |> to_charlist
         port = get(:data_port)
-        FtpData.create_socket(ftp_data_pid, ip, port)
-        FtpData.list(ftp_data_pid, file_info)
+        create_socket(ip, port)
+        list(file_info) ## do list command
     end
 
 
@@ -1060,4 +1059,38 @@ defmodule FtpServer do
         end  
     end
 
+    ## Functions for functions FtpData by sending kernel messages.
+    ## These are necessary because sometimes the FtpPasvSocket GenServer
+    ## does not start in time before commands get sent to it. Sending messages
+    ## to the handle_info callbacks allows us to call those functions in the FtpData
+    ## on themselves easily in the event that the FtpPassiveSocket GenServer is not
+    ## fully ready for use
+
+    def list(file_info) do
+        get(:ftp_data_pid) |> Kernel.send({:list, file_info})
+    end
+
+    def create_socket(ip, port) do
+        get(:ftp_data_pid) |> Kernel.send({:create_socket, ip, port})
+    end
+
+    def stor(working_path) do
+        get(:ftp_data_pid) |> Kernel.send({:stor, working_path})
+    end
+
+    def retr(working_path, offset) do
+        get(:ftp_data_pid) |> Kernel.send({:retr, working_path, offset})
+    end
+
+    def abort() do
+        get(:ftp_data_pid) |> Kernel.send({:close_data_socket, :abort})
+    end
+
+    def reset_state() do
+        get(:ftp_data_pid) |> Kernel.send(:reset_state)
+    end
+
+    def pasv(ip, port) do
+        get(:ftp_data_pid) |> Kernel.send({:pasv, ip, port})
+    end
 end
