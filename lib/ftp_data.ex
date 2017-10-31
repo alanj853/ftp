@@ -47,7 +47,7 @@ defmodule FtpData do
         true -> 
           case Process.get(:ftp_pasv_socket_pid) do
             nil ->
-              logger_debug "Waiting for FtpPasvSocket GenServer to come available"
+              #logger_debug "Waiting for FtpPasvSocket GenServer to come available"
               Kernel.send(self(), {:retr, file, new_offset})
             pid ->
               FtpPasvSocket.retr(pid, file, new_offset)
@@ -62,7 +62,7 @@ defmodule FtpData do
         true -> 
           case Process.get(:ftp_pasv_socket_pid) do
             nil ->
-              logger_debug "Waiting for FtpPasvSocket GenServer to come available"
+              #logger_debug "Waiting for FtpPasvSocket GenServer to come available"
               Kernel.send(self(), :reset_state )
             pid ->
               Process.get(:passive_listener_name) |> :ranch.stop_listener()
@@ -77,7 +77,7 @@ defmodule FtpData do
         true -> 
           case Process.get(:ftp_pasv_socket_pid) do
             nil ->
-              logger_debug "Waiting for FtpPasvSocket GenServer to come available"
+              #logger_debug "Waiting for FtpPasvSocket GenServer to come available"
               Kernel.send(self(), {:stor, to_path})
             pid ->
               FtpPasvSocket.stor(pid, to_path)
@@ -107,7 +107,7 @@ defmodule FtpData do
         true ->
           case Process.get(:ftp_pasv_socket_pid) do
             nil ->
-              logger_debug "Waiting for FtpPasvSocket GenServer to come available"
+              #logger_debug "Waiting for FtpPasvSocket GenServer to come available"
               Kernel.send(self(), {:list, file_info} )
             pid -> 
               logger_debug "Passing this to pasv socket #{inspect pid}..."
@@ -127,7 +127,7 @@ defmodule FtpData do
         true -> 
           case Process.get(:ftp_pasv_socket_pid) do
             nil ->
-              logger_debug "Waiting for FtpPasvSocket GenServer to come available"
+              #logger_debug "Waiting for FtpPasvSocket GenServer to come available"
               Kernel.send(self(), :close_data_socket)
             pid ->
               FtpActiveSocket.close_data_socket(pid)
@@ -142,7 +142,7 @@ defmodule FtpData do
         true -> 
           case Process.get(:ftp_pasv_socket_pid) do
             nil ->
-              logger_debug "Waiting for FtpPasvSocket GenServer to come available"
+              #logger_debug "Waiting for FtpPasvSocket GenServer to come available"
               Kernel.send(self(), {:close_data_socket, :abort})
             pid ->
               FtpPasvSocket.close_data_socket(pid, :abort)
