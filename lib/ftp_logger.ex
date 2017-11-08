@@ -1,6 +1,9 @@
 defmodule FtpLogger do
     @moduledoc """
-    Documentation for FtpServer
+    Documentation for FtpLogger. There are 3 levels of logging
+    0 -> No logging whatsoever
+    1 -> Only log messages that are requests and responses to and from the client
+    2 -> Log all messages
     """
 
     @desktop_logfile "lib/ftp_log.txt"
@@ -14,7 +17,7 @@ defmodule FtpLogger do
         {:ok, _pid} = GenServer.start_link(__MODULE__, %{debug: debug, log_file: log_file, machine: machine, server_name: server_name}, name: name)
     end
 
-    def init(state = %{debug: _debug, log_file: log_file, machine: machine, server_name: server_name}) do
+    def init(state = %{debug: _debug, log_file: log_file, machine: machine, server_name: _server_name}) do
         Logger.info "Started Logger"
         case machine do ## check to see if we're on a Desktop
             :desktop -> 
@@ -37,6 +40,10 @@ defmodule FtpLogger do
         {:ok, state}
     end
 
+    
+    @doc """
+    Handler to handle the log messages sent from FtpServer. These messages are prepended with the `server_name` before they get logged.
+    """
     def handle_info({:ftp_server_log_message, message, priority}, state = %{debug: debug, log_file: log_file, machine: machine, server_name: server_name}) do
         message = Enum.join([server_name, " ", message])
         case debug do
@@ -53,14 +60,20 @@ defmodule FtpLogger do
         {:noreply, state}
     end
 
-    defp log_message(message, log_file, machine) do
+
+    @doc """
+    Function to log messages. Both prints messages to console and writes messages to the log file
+
+    NOT UNIT_TESTABLE
+    """
+    def log_message(message, log_file, machine) do
         case machine do
             :desktop -> 
                 Logger.debug(message)
                 message = String.trim_trailing(message, "\n")
                 timestamp = DateTime.utc_now |> DateTime.to_string
                 File.write(@desktop_logfile, Enum.join([timestamp, "  " , message, "\n"]), [:append])
-            other_machine -> 
+            _other_machine -> 
                 Logger.info(message)
                 message = String.trim_trailing(message, "\n")
                 timestamp = DateTime.utc_now |> DateTime.to_string

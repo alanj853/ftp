@@ -1,12 +1,17 @@
 defmodule FtpServerListener do
+    @moduledoc """
+    Documentation for FtpServerListener. Used to start the "control" socket of the FTP Server
+    """
     use GenServer
 
+    
     def start_link(args) do
         server_name = Map.get(args, :server_name)
         name = Enum.join([server_name, "_ftp_server_listener"]) |> String.to_atom
         GenServer.start_link(__MODULE__, args, name: name)
     end
 
+    
     def init(state) do
         ip = Map.get(state, :ip)
         port = Map.get(state, :port)
