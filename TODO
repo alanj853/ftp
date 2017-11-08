@@ -9,6 +9,7 @@
 09. Handle case in when ftp active socket is not successfully created. Look at the create_socket handler
 10. Add ability to set logging level in realtime
 11. Remove all references to apc/schneider
+12. Look into handling more complex LIST commands
 
 
 
@@ -20,9 +21,9 @@ _____________________________________________________
  1.     ftp_active_socket.ex          COMMENTED
  2.     ftp_data.ex                   COMMENTED
  3.     ftp_logger.ex                 COMMENTED
- 4.     ftp_pasv_socket.ex            NOT_TESTED
+ 4.     ftp_pasv_socket.ex            COMMENTED
  5.     ftp_server_listener.ex        COMMENTED
- 6.     ftp_server.ex                 NOT_TESTED
+ 6.     ftp_server.ex                 COMMENTED
  7.     ftp_sub_supervisor.ex         COMMENTED
  8.     ftp_supervisor.ex             COMMENTED
  9.     ftp.ex                        COMMENTED
@@ -38,7 +39,7 @@ _____________________________________________________
  1.     ftp_active_socket.ex          TESTED
  2.     ftp_data.ex                   TESTED
  3.     ftp_logger.ex                 TESTED
- 4.     ftp_pasv_socket.ex            NOT_TESTED
+ 4.     ftp_pasv_socket.ex            TESTED
  5.     ftp_server_listener.ex        TESTED
  6.     ftp_server.ex                 NOT_TESTED
  7.     ftp_sub_supervisor.ex         TESTED
