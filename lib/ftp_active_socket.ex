@@ -1,6 +1,7 @@
 defmodule FtpActiveSocket do
   @moduledoc """
-  Documentation for FtpActiveSocket
+  Documentation for FtpActiveSocket. This module starts a GenServer that is used to handle all ftp transfers between the server
+  and client when an "active" data socket is used.
   """
   require Logger
   use GenServer
@@ -13,35 +14,43 @@ defmodule FtpActiveSocket do
       GenServer.start_link(__MODULE__, initial_state, name: name)
   end
   
+  
   def init(state = %{ socket: _socket, ftp_data_pid: ftp_data_pid, aborted: _aborted, server_name: _server_name}) do
       Process.put(:ftp_data_pid, ftp_data_pid)
       {:ok, state}
   end
 
+  
   def reset_state(pid) do
     GenServer.cast pid, :reset_state
   end
 
+  
   def retr(pid, file, offset) do
     GenServer.cast pid, {:retr, file, offset}
   end
 
+  
   def stor(pid, to_path) do
     GenServer.cast pid, {:stor, to_path}
   end
 
+  
   def list(pid, path) do
     GenServer.cast pid, {:list, path}
   end
 
+  
   def close_data_socket(pid) do
     GenServer.call pid, {:close_data_socket}
   end
 
+  
   def close_data_socket(pid, reason) do
     GenServer.call pid, {:close_data_socket, reason}
   end
 
+  
   def create_socket(pid, new_ip, new_port) do
     GenServer.call pid, {:create_socket, new_ip, new_port}
   end

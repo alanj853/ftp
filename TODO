@@ -11,12 +11,12 @@
 
 
 
-==================== COMMENTTED ======================
+==================== COMMENTED =======================
 _____________________________________________________
 |No.|         FILE            |       STATUS        |
 _____________________________________________________
- 1.     ftp_active_socket.ex          COMMENTTED
- 2.     ftp_data.ex                   NOT_TESTED
+ 1.     ftp_active_socket.ex          COMMENTED
+ 2.     ftp_data.ex                   COMMENTED
  3.     ftp_logger.ex                 NOT_TESTED
  4.     ftp_pasv_socket.ex            NOT_TESTED
  5.     ftp_server_listener.ex        NOT_TESTED
@@ -34,7 +34,7 @@ _____________________________________________________
 |No.|         FILE            |       STATUS        |
 _____________________________________________________
  1.     ftp_active_socket.ex          TESTED
- 2.     ftp_data.ex                   NOT_TESTED
+ 2.     ftp_data.ex                   TESTED
  3.     ftp_logger.ex                 NOT_TESTED
  4.     ftp_pasv_socket.ex            NOT_TESTED
  5.     ftp_server_listener.ex        NOT_TESTED
