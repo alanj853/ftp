@@ -1,8 +1,46 @@
-1. Graceful shutdown - Don't want to see terminate being called DONE
-2. Handle ABORT fully - Allow log in again etc. DONE
-3. Add config for allowed files/folders
-4. Handle Multiple Users
-5. Make sure user can't view any directory outside of root
-6. Make sure user can't access any directory outside of root
-7. Make sure user can't make any directory outside of root
-8. Make sure user can't remove any directory outside of root
+1. Graceful shutdown - Don't want to see terminate being called -- DONE
+2. Handle ABORT fully - Allow log in again etc. -- DONE
+3. Add config for allowed files/folders -- DONE
+4. Handle Multiple Users -- DONE
+5. Make sure user can't view any directory outside of root -- DONE
+6. Make sure user can't access any directory outside of root -- DONE
+7. Make sure user can't make any directory outside of root -- DONE
+8. Make sure user can't remove any directory outside of root -- DONE
+9. Handle case in when ftp active socket is not successfully created. Look at the create_socket handler
+
+
+
+
+==================== COMMENTTED ======================
+_____________________________________________________
+|No.|         FILE            |       STATUS        |
+_____________________________________________________
+ 1.     ftp_active_socket.ex          COMMENTTED
+ 2.     ftp_data.ex                   NOT_TESTED
+ 3.     ftp_logger.ex                 NOT_TESTED
+ 4.     ftp_pasv_socket.ex            NOT_TESTED
+ 5.     ftp_server_listener.ex        NOT_TESTED
+ 6.     ftp_server.ex                 NOT_TESTED
+ 7.     ftp_sub_supervisor.ex         NOT_TESTED
+ 8.     ftp_supervisor.ex             NOT_TESTED
+ 9.     ftp.ex                        NOT_TESTED
+ _____________________________________________________
+ =====================================================
+
+
+
+=================== UNIT TESTING ====================
+_____________________________________________________
+|No.|         FILE            |       STATUS        |
+_____________________________________________________
+ 1.     ftp_active_socket.ex          TESTED
+ 2.     ftp_data.ex                   NOT_TESTED
+ 3.     ftp_logger.ex                 NOT_TESTED
+ 4.     ftp_pasv_socket.ex            NOT_TESTED
+ 5.     ftp_server_listener.ex        NOT_TESTED
+ 6.     ftp_server.ex                 NOT_TESTED
+ 7.     ftp_sub_supervisor.ex         NOT_TESTED
+ 8.     ftp_supervisor.ex             NOT_TESTED
+ 9.     ftp.ex                        NOT_TESTED
+ _____________________________________________________
+ =====================================================
