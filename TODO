@@ -14,7 +14,7 @@
 
 
 
-==================== COMMENTED =======================
+==================== COMMENTED ======================
 _____________________________________________________
 |No.|         FILE            |       STATUS        |
 _____________________________________________________
@@ -27,23 +27,31 @@ _____________________________________________________
  7.     ftp_sub_supervisor.ex         COMMENTED
  8.     ftp_supervisor.ex             COMMENTED
  9.     ftp.ex                        COMMENTED
- _____________________________________________________
- =====================================================
+ ____________________________________________________
+ ====================================================
 
 
 
 =================== UNIT TESTING ====================
+For the unit tesing in this module, a lot of the 
+functions are not suitable for unit testing for one 
+or more of the following reasons.
+1.  Involves having several external GenServers up
+    and running.
+2.  Involves the use of TCP sockets. 
+3.  Uses the Process Dictionary
+4.  Is too basic for unit testing
 _____________________________________________________
 |No.|         FILE            |       STATUS        |
 _____________________________________________________
- 1.     ftp_active_socket.ex          TESTED
- 2.     ftp_data.ex                   TESTED
- 3.     ftp_logger.ex                 TESTED
- 4.     ftp_pasv_socket.ex            TESTED
- 5.     ftp_server_listener.ex        TESTED
- 6.     ftp_server.ex                 NOT_TESTED
- 7.     ftp_sub_supervisor.ex         TESTED
- 8.     ftp_supervisor.ex             TESTED
- 9.     ftp.ex                        TESTED
- _____________________________________________________
- =====================================================
+ 1.     ftp_active_socket.ex     TESTED/NOT_TESTABLE
+ 2.     ftp_data.ex              TESTED/NOT_TESTABLE
+ 3.     ftp_logger.ex            TESTED/NOT_TESTABLE
+ 4.     ftp_pasv_socket.ex       TESTED/NOT_TESTABLE
+ 5.     ftp_server_listener.ex   TESTED/NOT_TESTABLE
+ 6.     ftp_server.ex            TESTED/NOT_TESTABLE
+ 7.     ftp_sub_supervisor.ex    TESTED/NOT_TESTABLE
+ 8.     ftp_supervisor.ex        TESTED/NOT_TESTABLE
+ 9.     ftp.ex                   TESTED/NOT_TESTABLE
+ ____________________________________________________
+ ====================================================
