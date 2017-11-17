@@ -82,15 +82,8 @@ defmodule FtpActiveSocket do
   """
   def handle_cast({:stor, to_path} , _state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}) do
     logger_debug "Receiving file..."
-    {:ok, file} = receive_file(socket)
-    logger_debug("This is packet: #{inspect file}")
-    file_size = byte_size(file)
-    logger_debug("This is size: #{inspect file_size}")
-    :file.write_file(to_charlist(to_path), file)
-    logger_debug "File received."
-    message_ftp_data(:socket_transfer_ok)
-    new_socket_state = close_socket(socket)
-    new_state=%{socket: new_socket_state, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}
+    Kernel.send(self(), {:recv, socket, to_path})
+    new_state=%{socket: socket, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}
     {:noreply, new_state}
   end
 
@@ -153,6 +146,22 @@ defmodule FtpActiveSocket do
   """
   def handle_info({:from_ftp_data, _message}, state) do
     {:noreply, state}
+  end
+  
+  
+  @doc """
+  Handler that provides looping with the `receive_file` function
+  """
+  def handle_info({:recv, socket, to_path}, state) do
+      receive_file(socket, to_path)
+      {:noreply, state}
+  end
+
+  @doc """
+  Handler for setting the socket state after PUT command has finished
+  """
+  def handle_info({:recv_finished, new_socket}, _state=%{socket: _socket, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}) do
+    {:noreply, %{socket: new_socket, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}}
   end
 
   
@@ -324,17 +333,22 @@ defmodule FtpActiveSocket do
 
   NOT UNIT_TESTABLE
   """
-  def receive_file(socket, packet \\ "") do
-    case :gen_tcp.recv(socket, 0) do
-        {:ok, new_packet} ->
-            new_packet = Enum.join([packet, new_packet])
-            receive_file(socket, new_packet)
+  def receive_file(socket, to_path) do
+    case :ranch_tcp.recv(socket, 0, 10000) do
+        {:ok, new_file} ->
+            File.write(to_path, new_file, [:append])
+            Kernel.send(self(), {:recv, socket, to_path})
         {:error, :closed} ->
-          logger_debug "Finished receiving file."
-            {:ok, packet}
+            logger_debug "Finished receiving file."
+            {:ok, info} = File.stat(to_path)
+            file_size = Map.get(info, :size)
+            logger_debug("This is size: #{inspect file_size}")
+            logger_debug "File received."
+            message_ftp_data(:socket_transfer_ok)
+            new_socket_state = close_socket(socket)
+            Kernel.send(self(), {:recv_finished, new_socket_state})
         {:error, other_reason} ->
-          logger_debug "Error receiving file: #{other_reason}"
-            {:ok, packet}
+            logger_debug "Error receiving file: #{other_reason}"
     end
   end
 

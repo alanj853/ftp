@@ -84,14 +84,7 @@ defmodule FtpPasvSocket do
     """
     def handle_cast({:stor, to_path} , state=%{socket: socket, ftp_data_pid: _ftp_data_pid, aborted: _aborted, server_name: _server_name}) do
         logger_debug "Receiving file..."
-        {:ok, file} = receive_file(socket)
-        logger_debug("This is packet: #{inspect file}")
-        file_size = byte_size(file)
-        logger_debug("This is size: #{inspect file_size}")
-        :file.write_file(to_charlist(to_path), file)
-        logger_debug "File received."
-        message_ftp_data(:socket_transfer_ok)
-        message_ftp_data(:close_pasv_socket)
+        Kernel.send(self(), {:recv, socket, to_path})
         {:noreply, state}
     end
 
@@ -123,7 +116,16 @@ defmodule FtpPasvSocket do
         end
         {:noreply, state}
     end
-  
+
+    
+    @doc """
+    Handler that provides looping with the `receive_file` function
+    """
+    def handle_info({:recv, socket, to_path}, state) do
+        receive_file(socket, to_path)
+        {:noreply, state}
+    end
+
     
     @doc """
     Function that analyses file `file`, and returns the file's size, the number of transmissions needed to transmit this file based on the `offset` 
@@ -264,17 +266,21 @@ defmodule FtpPasvSocket do
 
     NOT UNIT_TESTABLE
     """
-    def receive_file(socket, packet \\ "") do
-        case :gen_tcp.recv(socket, 0) do
-            {:ok, new_packet} ->
-                new_packet = Enum.join([packet, new_packet])
-                receive_file(socket, new_packet)
+    def receive_file(socket, to_path) do
+        case :ranch_tcp.recv(socket, 0, 10000) do
+            {:ok, new_file} ->
+                File.write(to_path, new_file, [:append])
+                Kernel.send(self(), {:recv, socket, to_path})
             {:error, :closed} ->
-              logger_debug "Finished receiving file."
-                {:ok, packet}
+                logger_debug "Finished receiving file."
+                {:ok, info} = File.stat(to_path)
+                file_size = Map.get(info, :size)
+                logger_debug("This is size: #{inspect file_size}")
+                logger_debug "File received."
+                message_ftp_data(:socket_transfer_ok)
+                message_ftp_data(:close_pasv_socket)
             {:error, other_reason} ->
-              logger_debug "Error receiving file: #{other_reason}"
-                {:ok, packet}
+                logger_debug "Error receiving file: #{other_reason}"
         end
     end
 
