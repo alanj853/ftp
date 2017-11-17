@@ -337,7 +337,8 @@ defmodule FtpActiveSocket do
     case :ranch_tcp.recv(socket, 0, 10000) do
         {:ok, new_file} ->
             File.write(to_path, new_file, [:append])
-            Kernel.send(self(), {:recv, socket, to_path})
+            receive_file(socket, to_path)
+            #Kernel.send(self(), {:recv, socket, to_path})
         {:error, :closed} ->
             logger_debug "Finished receiving file."
             {:ok, info} = File.stat(to_path)
