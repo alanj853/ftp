@@ -187,6 +187,7 @@ defmodule Ftp do
         case supervisor_pid do
             nil -> 
                 Logger.error "Ftp server of name '#{name}' does not exist."
+                {:error, :not_found}
             _ -> 
                 sup = Enum.join([name, "_ftp_supervisor"]) |> String.to_atom
                 sub_sup = Enum.join([name, "_ftp_sub_supervisor"]) |> String.to_atom  |> Process.whereis
