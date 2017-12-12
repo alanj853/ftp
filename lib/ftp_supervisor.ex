@@ -3,14 +3,25 @@ defmodule FtpSupervisor do
     Documentation for the FtpSupervisor. Module is used to start and supervise 
     the FtpData and FtpLogger `GenServer`s and also the FtpSubSupervisor `Supervisor`
     """
+    require Logger
     use Supervisor
 
     
     def start_link(args) do
         server_name = Map.get(args, :server_name)
         name = Enum.join([server_name, "_ftp_supervisor"]) |> String.to_atom
-        result = {:ok, sup} = Supervisor.start_link(__MODULE__, [], name: name)
-        start_workers(sup, args)
+        result = 
+        case Supervisor.start_link(__MODULE__, [], name: name) do
+            {:ok, sup} ->
+                start_workers(sup, args)
+                {:ok, sup}
+            {:error, {:already_started, pid}} ->
+                Logger.info("Could not start FTP Server #{name}: {:already_started #{inspect pid}}")
+                {:ok, pid}
+            {:error, error} ->
+                Logger.info("Could not start FTP Server #{name}: #{inspect error}")
+                {:ok, nil}
+        end
         result
     end
 
