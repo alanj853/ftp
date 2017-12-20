@@ -34,11 +34,11 @@ defmodule Ftp do
             2 -> Will print messages to and from client, and also all debug messages from the server backend.
     """
     def start_server(name, ip, port, root_directory, limit_viewable_dirs \\ %{enabled: false, viewable_dirs: []} , username \\ "abc", password \\ "abc", log_file_directory \\ "/var/system/priv/log/ftp", debug \\ 2) do
-        ip = process_ip(ip)
         machine = get_machine_type()
         result = pre_run_checks(ip, port, root_directory, limit_viewable_dirs, log_file_directory, machine)
         case result do
             :ok_to_start -> 
+                ip = process_ip(ip)
                 FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password, log_file_directory: log_file_directory, debug: debug, machine: machine, server_name: name, limit_viewable_dirs: limit_viewable_dirs})
             error -> 
                 Logger.error("NOT STARTING FTP SERVER '#{name}'. #{inspect error}")
@@ -70,7 +70,7 @@ defmodule Ftp do
         "Invalid viewable directories listed"
     
     """
-    def pre_run_checks(_ip, _port, root_directory, limit_viewable_dirs, log_file_directory, machine) do
+    def pre_run_checks(ip, _port, root_directory, limit_viewable_dirs, log_file_directory, machine) do
         cond do
             ( File.exists?(root_directory) == false ) -> "#{root_directory} does not exist"
             ( File.dir?(root_directory) == false ) -> "#{root_directory} exists but it is not a directory"
@@ -78,6 +78,7 @@ defmodule Ftp do
             ( machine == :nmc3 ) && ( is_read_only_dir(root_directory) == true ) -> "#{root_directory} is part of the RO filesystem"
             ( machine == :nmc3 ) && ( is_read_only_dir(log_file_directory) == true ) -> "#{log_file_directory} is part of the RO filesystem"
             ( Map.get(limit_viewable_dirs, :enabled) == true ) && ( valid_viewable_dirs(root_directory , Map.get(limit_viewable_dirs, :viewable_dirs)) == false ) -> "Invalid viewable directories listed"
+            ( valid_ip?(ip) == false) -> "'#{ip}' is an invalid IP Address"
             true -> :ok_to_start   
         end
     end
@@ -93,6 +94,30 @@ defmodule Ftp do
     def process_ip(ip) do
         [h1,h2,h3,h4] = String.split(ip, ".")
         {String.to_integer(h1), String.to_integer(h2), String.to_integer(h3), String.to_integer(h4)}
+    end
+
+
+    @doc """
+    Function to validate an IPv4 using a regular expression
+
+    Examples
+        iex> Ftp.valid_ip?("127.0.0.1")
+        true
+        iex> Ftp.valid_ip?("asds")
+        false
+        iex> Ftp.valid_ip?("127.0.0.1.1")
+        false
+        iex> Ftp.valid_ip?("127.0.0")
+        false
+        iex> Ftp.valid_ip?("127.0.0.256")
+        false
+    """
+    def valid_ip?(ip) do
+       exp =  ~r/^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$/
+       case Regex.named_captures(exp, ip) do
+           nil -> false
+           _ -> true
+       end
     end
 
 
