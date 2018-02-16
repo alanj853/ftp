@@ -272,6 +272,7 @@ defmodule FtpServer do
     Function to handle rmd command
     """
     def handle_rmd(command) do
+        command = String.trim_leading(command, "X") ## in the event we get an XRMD command
         "RMD " <> path = command |> String.trim()
         root_dir = get(:root_dir)
         current_client_working_directory = get(:client_cd)
@@ -296,6 +297,7 @@ defmodule FtpServer do
     Function to handle mkd command
     """
     def handle_mkd(command) do
+        command = String.trim_leading(command, "X") ## in the event we get an XMKD command
         "MKD " <> path = command |> String.trim()
         root_dir = get(:root_dir)
         current_client_working_directory = get(:client_cd)
