@@ -22,6 +22,10 @@ defmodule FtpPasvSocket do
         {:ok, %{}}
     end  
 
+    ## Function present to remove warnings
+    def init(_) do
+        {:ok, []}
+    end
     
     def start_listener(ref, _socket, state) do
         ftp_data_pid = Map.get(state, :ftp_data_pid)

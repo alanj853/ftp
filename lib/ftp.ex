@@ -215,15 +215,6 @@ defmodule Ftp do
                 {:error, :not_found}
             _ -> 
                 sup = Enum.join([name, "_ftp_supervisor"]) |> String.to_atom
-                sub_sup = Enum.join([name, "_ftp_sub_supervisor"]) |> String.to_atom  |> Process.whereis
-                data = Enum.join([name, "_ftp_data"]) |> String.to_atom  |> Process.whereis
-                logger = Enum.join([name, "_ftp_logger"]) |> String.to_atom  |> Process.whereis
-                Enum.join([name, "_control_socket"]) |> String.to_atom |> :ranch.stop_listener 
-        
-                Supervisor.terminate_child(sup, sub_sup)
-                Supervisor.terminate_child(sup, data)
-                Supervisor.terminate_child(sup, logger)
-        
                 Supervisor.stop(sup)
         end
 

@@ -72,7 +72,12 @@ defmodule FtpServer do
         start_listener(ref,socket, state)
         :gen_server.enter_loop(__MODULE__, [], [])
         {:ok, %{}}
-    end   
+    end
+    
+    ## Function present to remove warnings
+    def init(_) do
+        {:ok, []}
+    end
     
     def start_listener(listener_pid, socket, state) do
         setup_dd(state)
