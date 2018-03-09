@@ -1,7 +1,7 @@
 defmodule Ftp do
     require Logger
     @moduledoc """
-    Module where the ftp server is started from
+    Documentation for the Ftp module. This is where the ftp server is started from
     """
 
     ## Uncomment the lines below to run this as an application from running `iex -S mix`
@@ -25,45 +25,113 @@ defmodule Ftp do
     `root_directory`, and not as absolute paths. E.g., given `root_directory` is "/var/system" and the path you want to specify is "/var/system/test", then 
     you would just specify it as "test".\n    2.1 Each entry into the `viewable_dirs` list should be a `Tuple` of the following format: {`directory`, `access`}, where `directory`
     is the directory name (relative to `root_directory` as mentioned above) given as a `String`, and `access` is an atom of either `:rw` or `:ro`.\n
-    `username`: The username needed to log into the server. Is \"apc\" by default.\n
-    `password`: The password needed to log into the server. Is \"apc\" by default.\n
+    `username`: The username needed to log into the server. Is \"abc\" by default.\n
+    `password`: The password needed to log into the server. Is \"abc\" by default.\n
     `log_file_directory`: The directory where the log file will be stored. Is \"/var/system/priv/log/ftp\" by default.\n
     `debug`: The debug level for logging. Can be either 0, 1 or 2 (default). 
             0 -> No debugging at all
             1 -> Will print messages to and from client
             2 -> Will print messages to and from client, and also all debug messages from the server backend.
     """
-    def start_server(name, ip, port, root_directory, limit_viewable_dirs \\ %{enabled: false, viewable_dirs: []} , username \\ "apc", password \\ "apc", log_file_directory \\ "/var/system/priv/log/ftp", debug \\ 2) do
-        ip = process_ip(ip)
+    def start_server(name, ip, port, root_directory, options \\ []) do
+        limit_viewable_dirs = options[:limit_viewable_dirs] || %{enabled: false, viewable_dirs: []}
+        username = options[:username] || "abc"
+        password = options[:password] || "abc"
+        log_file_directory = options[:log_file_directory] || "/var/system/priv/log/ftp"
+        debug = options[:debug] || 2
+        authentication_function = options[:authentication_function] || nil
+
         machine = get_machine_type()
         result = pre_run_checks(ip, port, root_directory, limit_viewable_dirs, log_file_directory, machine)
         case result do
             :ok_to_start -> 
-                FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password, log_file_directory: log_file_directory, debug: debug, machine: machine, server_name: name, limit_viewable_dirs: limit_viewable_dirs})
+                ip = process_ip(ip)
+                FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password, log_file_directory: log_file_directory, debug: debug, machine: machine, server_name: name, limit_viewable_dirs: limit_viewable_dirs, authentication_function: authentication_function})
             error -> 
                 Logger.error("NOT STARTING FTP SERVER '#{name}'. #{inspect error}")
                 {:error, error}
         end
     end
 
-    defp process_ip(ip) do
-        [h1,h2,h3,h4] = String.split(ip, ".")
-        {String.to_integer(h1), String.to_integer(h2), String.to_integer(h3), String.to_integer(h4)}
-    end
 
-    defp pre_run_checks(ip, port, root_directory, limit_viewable_dirs, log_file_directory, machine) do
+    @doc """
+    Function that runs checks on the arguments passed in before starting the FtpServer. Will return `:ok_to_start` if all tests pass. If not, 
+    it will return the reason why it can't start as a `String`.
+    
+
+    Examples
+        iex> Ftp.pre_run_checks(Ftp.process_ip("127.0.0.1"), 8080, "abc", %{}, "ghi", :nmc3)
+        "abc does not exist"
+        iex> {:ok, cd} = File.cwd
+        iex> not_a_dir = "/bin/sh"
+        iex> Ftp.pre_run_checks(Ftp.process_ip("127.0.0.1"), 8080, not_a_dir, %{}, "ghi", :nmc3)
+        "/bin/sh exists but it is not a directory"
+        iex> Ftp.pre_run_checks(Ftp.process_ip("127.0.0.1"), 8080, cd, %{}, "/usr/abcd", :nmc3)
+        "Cannot create log file directory /usr/abcd"
+        iex> Ftp.pre_run_checks(Ftp.process_ip("127.0.0.1"), 8080, "/usr", %{}, cd, :nmc3)
+        "/usr is part of the RO filesystem"
+        iex> Ftp.pre_run_checks(Ftp.process_ip("127.0.0.1"), 8080, cd, %{}, "/usr", :nmc3)
+        "/usr is part of the RO filesystem"
+        iex> map =  %{enabled: true, viewable_dirs: [{"fw", :rw}, {"waveforms", :ro}]}
+        iex> Ftp.pre_run_checks(Ftp.process_ip("127.0.0.1"), 8080, cd, map, cd, :nmc3)
+        "Invalid viewable directories listed"
+    
+    """
+    def pre_run_checks(ip, _port, root_directory, limit_viewable_dirs, log_file_directory, machine) do
         cond do
-            ( File.exists?(root_directory) == false ) -> "#{inspect root_directory} does not exist"
-            ( File.dir?(root_directory) == false ) -> "#{inspect root_directory} exists but it is not a directory"
-            ( machine == :nmc3 ) && ( create_log_file_dir(log_file_directory) == false ) -> "Cannot create log file directory #{inspect log_file_directory}"
-            ( machine == :nmc3 ) && ( is_read_only_dir(root_directory) == true ) -> "#{inspect root_directory}  is part of the RO filesystem"
-            ( machine == :nmc3 ) && ( is_read_only_dir(log_file_directory) == true ) -> "#{inspect log_file_directory} is part of the RO filesystem"
+            ( File.exists?(root_directory) == false ) -> "#{root_directory} does not exist"
+            ( File.dir?(root_directory) == false ) -> "#{root_directory} exists but it is not a directory"
+            ( machine == :nmc3 ) && ( create_log_file_dir(log_file_directory) == false ) -> "Cannot create log file directory #{log_file_directory}"
+            ( machine == :nmc3 ) && ( is_read_only_dir(root_directory) == true ) -> "#{root_directory} is part of the RO filesystem"
+            ( machine == :nmc3 ) && ( is_read_only_dir(log_file_directory) == true ) -> "#{log_file_directory} is part of the RO filesystem"
             ( Map.get(limit_viewable_dirs, :enabled) == true ) && ( valid_viewable_dirs(root_directory , Map.get(limit_viewable_dirs, :viewable_dirs)) == false ) -> "Invalid viewable directories listed"
+            ( valid_ip?(ip) == false) -> "'#{ip}' is an invalid IP Address"
             true -> :ok_to_start   
         end
     end
 
-    defp create_log_file_dir(path) do
+
+    @doc """
+    Function to convert an IPv4 address given an a `String` to a `Tuple` of integers.
+
+    Examples
+        iex> Ftp.process_ip("127.0.0.1")
+        {127,0,0,1}
+    """
+    def process_ip(ip) do
+        [h1,h2,h3,h4] = String.split(ip, ".")
+        {String.to_integer(h1), String.to_integer(h2), String.to_integer(h3), String.to_integer(h4)}
+    end
+
+
+    @doc """
+    Function to validate an IPv4 using a regular expression
+
+    Examples
+        iex> Ftp.valid_ip?("127.0.0.1")
+        true
+        iex> Ftp.valid_ip?("asds")
+        false
+        iex> Ftp.valid_ip?("127.0.0.1.1")
+        false
+        iex> Ftp.valid_ip?("127.0.0")
+        false
+        iex> Ftp.valid_ip?("127.0.0.256")
+        false
+    """
+    def valid_ip?(ip) do
+       exp =  ~r/^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$/
+       case Regex.named_captures(exp, ip) do
+           nil -> false
+           _ -> true
+       end
+    end
+
+
+    @doc """
+    Function used to create the log file directory
+    """
+    def create_log_file_dir(path) do
         case File.mkdir(path) do
             :ok ->
                 true
@@ -75,16 +143,23 @@ defmodule Ftp do
         end 
     end
 
-    defp get_machine_type() do
+
+    @doc """
+    Function to return the machine type. Still needs work to remove refererces to company
+    """
+    def get_machine_type() do
         case System.get_env("HOME") do
             "/root" -> :nmc3
             _ -> :desktop
         end
     end
 
+    
+    @doc """
+    Function to determine if the `viewable_dirs` are valid and allowed to be used by the Ftp Server
+    """
     def valid_viewable_dirs(rootdir, viewable_dirs) do
         Process.put(:valid_view_able_dirs, true)
-        result =
         for item <- viewable_dirs do
             dir = elem(item, 0)
             path = Path.join([rootdir, dir])
@@ -100,44 +175,53 @@ defmodule Ftp do
         Process.get(:valid_view_able_dirs)   
     end
 
+    
+    @doc """
+    Function to determine if `path` is read-only or not. If the path is in any way invalid, it is determined as read-only, and this function
+    returns `true`
+    """
     def is_read_only_dir(path) do
-        {:ok, info} = File.stat(path)
-        case Map.get(info, :access) do
-            :read -> true
-            :none -> true
-            _ -> false
+        case File.stat(path) do
+            {:ok, info} ->
+                case Map.get(info, :access) do
+                    :read -> true
+                    :none -> true
+                    _ -> false
+                end
+            {:error, _reason} -> 
+                true 
         end
     end
 
+    
+    @doc """
+    Runs a sample of the FtpServer
+    """
     def sample() do
-        limit_viewable_dirs = %{
-            enabled: true,
-            viewable_dirs: [
-                {"fw", :rw},
-                {"waveforms", :ro}
-            ]
-        }
+        # limit_viewable_dirs = %{
+        #     enabled: true,
+        #     viewable_dirs: [
+        #         {"fw", :rw},
+        #         {"waveforms", :ro}
+        #     ]
+        # }
         #start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input", limit_viewable_dirs)
         start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input")
     end
 
+    
+    @doc """
+    Function to close the server with name `name`. Calling this function will completely close the all GenServers and Supervisors
+    """
     def close_server(name) do
         ## Kill main supervisor
         supervisor_pid = Enum.join([name, "_ftp_supervisor"]) |> String.to_atom |> Process.whereis
         case supervisor_pid do
             nil -> 
                 Logger.error "Ftp server of name '#{name}' does not exist."
+                {:error, :not_found}
             _ -> 
                 sup = Enum.join([name, "_ftp_supervisor"]) |> String.to_atom
-                sub_sup = Enum.join([name, "_ftp_sub_supervisor"]) |> String.to_atom  |> Process.whereis
-                data = Enum.join([name, "_ftp_data"]) |> String.to_atom  |> Process.whereis
-                logger = Enum.join([name, "_ftp_logger"]) |> String.to_atom  |> Process.whereis
-                Enum.join([name, "_control_socket"]) |> String.to_atom |> :ranch.stop_listener 
-        
-                Supervisor.terminate_child(sup, sub_sup)
-                Supervisor.terminate_child(sup, data)
-                Supervisor.terminate_child(sup, logger)
-        
                 Supervisor.stop(sup)
         end
 

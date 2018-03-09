@@ -1,8 +1,57 @@
-1. Graceful shutdown - Don't want to see terminate being called DONE
-2. Handle ABORT fully - Allow log in again etc. DONE
-3. Add config for allowed files/folders
-4. Handle Multiple Users
-5. Make sure user can't view any directory outside of root
-6. Make sure user can't access any directory outside of root
-7. Make sure user can't make any directory outside of root
-8. Make sure user can't remove any directory outside of root
+01. Graceful shutdown - Don't want to see terminate being called -- DONE
+02. Handle ABORT fully - Allow log in again etc. -- DONE
+03. Add config for allowed files/folders -- DONE
+04. Handle Multiple Users -- DONE
+05. Make sure user can't view any directory outside of root -- DONE
+06. Make sure user can't access any directory outside of root -- DONE
+07. Make sure user can't make any directory outside of root -- DONE
+08. Make sure user can't remove any directory outside of root -- DONE
+09. Handle case in when ftp active socket is not successfully created. Look at the create_socket handler
+10. Add ability to set logging level in realtime
+11. Remove all references to apc/schneider
+12. Look into handling more complex LIST commands
+
+
+
+
+==================== COMMENTED ======================
+_____________________________________________________
+|No.|         FILE            |       STATUS        |
+_____________________________________________________
+ 1.     ftp_active_socket.ex          COMMENTED
+ 2.     ftp_data.ex                   COMMENTED
+ 3.     ftp_logger.ex                 COMMENTED
+ 4.     ftp_pasv_socket.ex            COMMENTED
+ 5.     ftp_server_listener.ex        COMMENTED
+ 6.     ftp_server.ex                 COMMENTED
+ 7.     ftp_sub_supervisor.ex         COMMENTED
+ 8.     ftp_supervisor.ex             COMMENTED
+ 9.     ftp.ex                        COMMENTED
+ ____________________________________________________
+ ====================================================
+
+
+
+=================== UNIT TESTING ====================
+For the unit tesing in this module, a lot of the 
+functions are not suitable for unit testing for one 
+or more of the following reasons.
+1.  Involves having several external GenServers up
+    and running.
+2.  Involves the use of TCP sockets. 
+3.  Uses the Process Dictionary
+4.  Is too basic for unit testing
+_____________________________________________________
+|No.|         FILE            |       STATUS        |
+_____________________________________________________
+ 1.     ftp_active_socket.ex     TESTED/NOT_TESTABLE
+ 2.     ftp_data.ex              TESTED/NOT_TESTABLE
+ 3.     ftp_logger.ex            TESTED/NOT_TESTABLE
+ 4.     ftp_pasv_socket.ex       TESTED/NOT_TESTABLE
+ 5.     ftp_server_listener.ex   TESTED/NOT_TESTABLE
+ 6.     ftp_server.ex            TESTED/NOT_TESTABLE
+ 7.     ftp_sub_supervisor.ex    TESTED/NOT_TESTABLE
+ 8.     ftp_supervisor.ex        TESTED/NOT_TESTABLE
+ 9.     ftp.ex                   TESTED/NOT_TESTABLE
+ ____________________________________________________
+ ====================================================

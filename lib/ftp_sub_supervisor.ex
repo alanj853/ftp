@@ -1,12 +1,18 @@
 defmodule FtpSubSupervisor do
+    @moduledoc """
+    Documentation for FtpSubSupervisor. The function of this module is to start and supervise the
+    FtpServerListener `GenServer`.
+    """
     use Supervisor
 
+    
     def start_link(state) do
         server_name = Map.get(state, :server_name)
         name = Enum.join([server_name, "_ftp_sub_supervisor"]) |> String.to_atom
         {:ok, _pid} = Supervisor.start_link(__MODULE__, state, name: name)
     end
 
+    
     def init(state) do
         Process.put(:default_state, state)
         child_process = 
