@@ -62,8 +62,8 @@ defmodule FtpServer do
     require Logger
     use GenServer
 
-    def start_link(ref, socket, transport, _opts = [%{ftp_logger_pid: ftp_logger_pid, ftp_data_pid: ftp_data_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port, debug: debug, timeout: timeout, restart_time: restart_time, server_name: server_name, limit_viewable_dirs: limit_viewable_dirs}]) do
-        initial_state = %{ftp_logger_pid: ftp_logger_pid, ftp_data_pid: ftp_data_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port, debug: debug, timeout: timeout, restart_time: restart_time, listener_ref: ref, control_socket: socket, transport: transport, server_name: server_name, limit_viewable_dirs: limit_viewable_dirs}
+    def start_link(ref, socket, transport, _opts = [%{ftp_auth_pid: ftp_auth_pid, ftp_logger_pid: ftp_logger_pid, ftp_data_pid: ftp_data_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port, debug: debug, timeout: timeout, restart_time: restart_time, server_name: server_name, limit_viewable_dirs: limit_viewable_dirs}]) do
+        initial_state = %{ftp_auth_pid: ftp_auth_pid, ftp_logger_pid: ftp_logger_pid, ftp_data_pid: ftp_data_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port, debug: debug, timeout: timeout, restart_time: restart_time, listener_ref: ref, control_socket: socket, transport: transport, server_name: server_name, limit_viewable_dirs: limit_viewable_dirs}
         pid  = :proc_lib.spawn_link(__MODULE__, :init, [ref, socket, transport, initial_state])
         {:ok, pid}
     end
@@ -93,7 +93,7 @@ defmodule FtpServer do
             {:error, reason} -> logger_debug("Socket not set to active. Reason #{reason}", :comm)
         end
         
-        sucessful_authentication = auth()
+        sucessful_authentication = auth(Map.get(state, :server_name))
         case sucessful_authentication do
             true ->
                 logger_debug("Valid Login Credentials", :comm)
@@ -607,28 +607,6 @@ defmodule FtpServer do
 
     
     @doc """
-    Function to validate username
-    """
-    def valid_username(expected_username, username) do
-        case (expected_username == username) do
-            true -> 0
-            false -> 1
-        end
-    end
-
-    
-    @doc """
-    Function to validate password
-    """
-    def valid_password(expected_password, password) do
-        case (expected_password == password) do
-            true -> 0
-            false -> 1
-        end
-    end
-
-    
-    @doc """
     Function to send any log messages to the FtpLogger module. A priority-based
     system is used:
     1. If `priority` equals `:all` (default) then all messages sent to this function will be logged
@@ -919,9 +897,7 @@ defmodule FtpServer do
     @doc """
     Function to perform the authenication at the beginning of a connection
     """
-    def auth() do
-        expected_username = get(:username)
-        expected_password = get(:password)
+    def auth(server_name) do
         data = receive do
             {:tcp, _socket, data} -> data
           end
@@ -936,11 +912,9 @@ defmodule FtpServer do
         logger_debug "Password Given: #{inspect data}"
         "PASS " <> password = to_string(data) |> String.trim()
 
-        valid_credentials = valid_username(expected_username, username) + valid_password(expected_password, password)
-        case valid_credentials do
-            0 -> true
-            _ -> false
-        end
+        ftp_auth_name = Enum.join([server_name, "_ftp_auth"]) |> String.to_atom()
+        IO.puts "This is auth: #{inspect ftp_auth_name}"
+        FtpAuth.authenticate(ftp_auth_name, username, password)
     end
 
 

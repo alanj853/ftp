@@ -33,13 +33,20 @@ defmodule Ftp do
             1 -> Will print messages to and from client
             2 -> Will print messages to and from client, and also all debug messages from the server backend.
     """
-    def start_server(name, ip, port, root_directory, limit_viewable_dirs \\ %{enabled: false, viewable_dirs: []} , username \\ "abc", password \\ "abc", log_file_directory \\ "/var/system/priv/log/ftp", debug \\ 2) do
+    def start_server(name, ip, port, root_directory, options \\ []) do
+        limit_viewable_dirs = options[:limit_viewable_dirs] || %{enabled: false, viewable_dirs: []}
+        username = options[:username] || "abc"
+        password = options[:password] || "abc"
+        log_file_directory = options[:log_file_directory] || "/var/system/priv/log/ftp"
+        debug = options[:debug] || 2
+        authentication_function = options[:authentication_function] || nil
+
         machine = get_machine_type()
         result = pre_run_checks(ip, port, root_directory, limit_viewable_dirs, log_file_directory, machine)
         case result do
             :ok_to_start -> 
                 ip = process_ip(ip)
-                FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password, log_file_directory: log_file_directory, debug: debug, machine: machine, server_name: name, limit_viewable_dirs: limit_viewable_dirs})
+                FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password, log_file_directory: log_file_directory, debug: debug, machine: machine, server_name: name, limit_viewable_dirs: limit_viewable_dirs, authentication_function: authentication_function})
             error -> 
                 Logger.error("NOT STARTING FTP SERVER '#{name}'. #{inspect error}")
                 {:error, error}
