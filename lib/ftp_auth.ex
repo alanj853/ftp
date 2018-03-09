@@ -22,7 +22,7 @@ defmodule FtpAuth do
     end
 
     def authenticate(server_name, username, password) do
-        GenServer.call(server_name, {:authenticate, username, password})
+        GenServer.call(server_name, {:authenticate, username, password}, 10000) ## allow 10 seconds to authenticate
     end
 
     def handle_call(:get_state, _from, state) do
