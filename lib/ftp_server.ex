@@ -913,7 +913,6 @@ defmodule FtpServer do
         "PASS " <> password = to_string(data) |> String.trim()
 
         ftp_auth_name = Enum.join([server_name, "_ftp_auth"]) |> String.to_atom()
-        IO.puts "This is auth: #{inspect ftp_auth_name}"
         FtpAuth.authenticate(ftp_auth_name, username, password)
     end
 
