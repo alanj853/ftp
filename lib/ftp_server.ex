@@ -193,6 +193,7 @@ defmodule FtpServer do
         {code, response} =
         cond do
             String.contains?(command, "LIST") == true -> handle_list(command)
+            String.contains?(command, "NLST") == true -> handle_nlst(command)
             String.contains?(command, "TYPE") == true -> handle_type(command)
             String.contains?(command, "STRU") == true -> handle_stru(command)
             String.contains?(command, "QUIT") == true -> handle_quit(command)
@@ -347,7 +348,7 @@ defmodule FtpServer do
         p2 = :rand.uniform(230)
         port_number = p1*256 + p2
         ip = get(:control_ip)
-        put(:data_ip, "127.0.0.1") ## update data socket info with new ip
+        put(:data_ip, ip_tuple_to_string(ip)) ## update data socket info with new ip
         put(:data_port, port_number) ## update data socket info with new port_number
         {h1, h2, h3, h4} = ip
         pasv(ip, port_number)
@@ -471,6 +472,15 @@ defmodule FtpServer do
                         {@ftp_NORESPONSE, :ok}
                 end
         end
+    end
+
+    @doc """
+    Function to handle list command
+    """
+    def handle_nlst(command) do
+        [_nlst_part, data] = String.split(command, "NLST")
+        command = "LIST" <> data
+        handle_list(command) ## is a list command
     end
 
     
@@ -903,19 +913,28 @@ defmodule FtpServer do
         data = receive do
             {:tcp, _socket, data} -> data
           end
-        logger_debug "Username Given: #{inspect data}"
-        "USER " <> username = to_string(data) |> String.trim()
+        cond do
+            String.contains?(data, "USER") == true ->
+                logger_debug "Username Given: #{inspect data}"
+                "USER " <> username = to_string(data) |> String.trim()
 
-        send_message(@ftp_GIVEPWORD,"Enter Password")
-        
-        data = receive do
-            {:tcp, _socket, data} -> data
-          end
-        logger_debug "Password Given: #{inspect data}"
-        "PASS " <> password = to_string(data) |> String.trim()
+                send_message(@ftp_GIVEPWORD,"Enter Password")
+                
+                data = receive do
+                    {:tcp, _socket, data} -> data
+                end
+                logger_debug "Password Given: #{inspect data}"
+                "PASS " <> password = to_string(data) |> String.trim()
 
-        ftp_auth_name = Enum.join([server_name, "_ftp_auth"]) |> String.to_atom()
-        FtpAuth.authenticate(ftp_auth_name, username, password)
+                ftp_auth_name = Enum.join([server_name, "_ftp_auth"]) |> String.to_atom()
+                FtpAuth.authenticate(ftp_auth_name, username, password)
+            String.contains?(data, "OPTS") == true ->
+                {return_code, message} = handle_opts(data)
+                send_message(return_code, message)
+                auth(server_name)
+            true ->
+                auth(server_name)
+        end
     end
 
 
@@ -1037,6 +1056,11 @@ defmodule FtpServer do
                     false -> logger_debug "#{inspect option}  not set. Reason #{reason}"
                 end
         end  
+    end
+
+    defp ip_tuple_to_string(ip) do
+       {h1, h2, h3, h4} = ip
+       Enum.join([to_string(h1), to_string(h2), to_string(h3), to_string(h4)], ".")
     end
 
     ## Functions for messaging FtpData by sending kernel messages.
