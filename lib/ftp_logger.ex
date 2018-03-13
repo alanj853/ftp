@@ -12,7 +12,7 @@ defmodule FtpLogger do
 
     def start_link(_args = %{debug: debug, log_file_directory: dir, machine: machine, server_name: server_name}) do
         dir = String.trim_trailing(dir, "/")
-        log_file = Enum.join([dir, "/ftp_log.txt"])
+        log_file = Enum.join([dir, "/ftp_log_#{to_string(server_name)}.txt"])
         name = Enum.join([server_name, "_ftp_logger"]) |> String.to_atom
         {:ok, _pid} = GenServer.start_link(__MODULE__, %{debug: debug, log_file: log_file, machine: machine, server_name: server_name}, name: name)
     end
