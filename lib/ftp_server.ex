@@ -863,7 +863,7 @@ defmodule FtpServer do
                 access = Map.get(info, :access)
                 permissions = format_permissions(type, access)
                 Enum.join([permissions, links, uid, gid, size, timestamp, name], " ")
-            {:error, reason} ->  ":error "
+            {:error, _reason} ->  ":error "
         end
     end
 
