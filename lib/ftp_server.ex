@@ -837,7 +837,8 @@ defmodule FtpServer do
     """
     def get_info(cd,files) do
         list = for file <- files, do: Enum.join([cd, "/", file]) |> format_file_info
-        Enum.join(list, "\r\n")
+        list_of_files = Enum.join(list, "\r\n")
+        String.replace(list_of_files, ":error \r\n", "", [global: true]) ## remove results that returned :error
     end
 
 
@@ -848,19 +849,22 @@ defmodule FtpServer do
         root_dir = get(:root_dir)
         name = String.trim_leading(file, root_dir) |> String.split("/") |> List.last
         logger_debug "getting info for #{file}"
-        {:ok, info} = File.stat(file)
-        size = Map.get(info, :size)
-        {{_y, m, d}, {h, min, _s}} = Map.get(info, :mtime)
-        time = Enum.join([h, min], ":")
-        m = format_month(m)
-        timestamp = Enum.join([m, d, time], " ")
-        links = Map.get(info, :links)
-        uid = Map.get(info, :uid)
-        gid = Map.get(info, :gid)
-        type = Map.get(info, :type)
-        access = Map.get(info, :access)
-        permissions = format_permissions(type, access)
-        Enum.join([permissions, links, uid, gid, size, timestamp, name], " ")
+        case File.stat(file) do
+            {:ok, info} ->
+                size = Map.get(info, :size)
+                {{_y, m, d}, {h, min, _s}} = Map.get(info, :mtime)
+                time = Enum.join([h, min], ":")
+                m = format_month(m)
+                timestamp = Enum.join([m, d, time], " ")
+                links = Map.get(info, :links)
+                uid = Map.get(info, :uid)
+                gid = Map.get(info, :gid)
+                type = Map.get(info, :type)
+                access = Map.get(info, :access)
+                permissions = format_permissions(type, access)
+                Enum.join([permissions, links, uid, gid, size, timestamp, name], " ")
+            {:error, reason} ->  ":error "
+        end
     end
 
 
