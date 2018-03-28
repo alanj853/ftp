@@ -120,11 +120,10 @@ defmodule Ftp do
         false
     """
     def valid_ip?(ip) do
-       exp =  ~r/^(([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])\.){3}([0-9]|[1-9][0-9]|1[0-9]{2}|2[0-4][0-9]|25[0-5])$/
-       case Regex.named_captures(exp, ip) do
-           nil -> false
-           _ -> true
-       end
+        case :inet.parse_ipv4strict_address(to_charlist(ip)) do
+            {:ok, _addr} -> true
+            _ -> false
+        end
     end
 
 
@@ -206,7 +205,9 @@ defmodule Ftp do
         #     ]
         # }
         #start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input", limit_viewable_dirs)
-        start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input")
+        # start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input")
+        opts = [limit_viewable_dirs: %{enabled: false, viewable_dirs: []}, username: "apc", password: "apc"]
+        start_server(:sample, "10.216.251.46", 2525, "/home/user", opts)
     end
 
     
