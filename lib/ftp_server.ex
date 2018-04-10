@@ -171,7 +171,14 @@ defmodule FtpServer do
         logger_debug "Socket #{inspect socket} closed. Actual Socket status: #{inspect socket_status} . Connection to client ended"
         {:noreply, state}
     end
-    
+
+    @doc """
+    Handler for `unknown` messages
+    """
+    def handle_info({ref, :undefined}, state) when is_reference(ref) do
+        logger_debug "Received an unknown message: #{inspect ref}"
+        {:noreply, state}
+    end
     
     @doc """
     Handler for when this `GenServer` terminates
@@ -318,8 +325,10 @@ defmodule FtpServer do
             path_exists == true -> {@ftp_FILEFAIL, "Current directory '#{path}' already exists."}
             have_read_access == false || have_write_access == false -> {@ftp_NOPERM, "You don't have permission to create this directory ('#{path}')."}
             true ->
-                File.mkdir(working_path)
-                {@ftp_MKDIROK, "Successfully created directory '#{path}'"}
+                case File.mkdir(working_path) do
+                    :ok -> {@ftp_MKDIROK, "Successfully created directory '#{path}'"}
+                    {:error, error} -> {@ftp_FILEFAIL, "Could not create '#{working_path}'. Reason #{inspect error}"}
+                end
         end
     end
 
@@ -798,11 +807,12 @@ defmodule FtpServer do
     """
     def allowed_to_write(current_path) do
         root_dir = get(:root_dir)
+        parent_dir = Path.dirname(current_path)
         %{enabled: enabled, viewable_dirs: viewable_dirs } = get(:limit_viewable_dirs)
         cond do
             ( is_within_directory(root_dir, current_path) == false ) -> false
             ( enabled == true && is_within_writeable_dirs(viewable_dirs, current_path) == false ) -> false
-            ( is_read_only_dir(current_path) == true ) -> false
+            ( is_read_only_dir(parent_dir) == true ) -> false
             true -> true
         end
     end
@@ -822,11 +832,16 @@ defmodule FtpServer do
     Function to check is `path` is part of the machines own read-only  filesystem
     """
     def is_read_only_dir(path) do
-        {:ok, info} = File.stat(path)
-        case Map.get(info, :access) do
-            :read -> true
-            :none -> true
-            _ -> false
+        case File.stat(path) do
+            {:ok, info} ->
+                case Map.get(info, :access) do
+                    :read -> true
+                    :none -> true
+                    _ -> false
+                end
+            {:error, error} ->
+                logger_debug("Could not determine if #{inspect path} is read-only or not (Reason: #{inspect error}), so assuming it is not and returning false.")
+                false
         end
     end
 
