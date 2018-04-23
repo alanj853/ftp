@@ -207,7 +207,7 @@ defmodule Ftp do
         #start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input", limit_viewable_dirs)
         # start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input")
         opts = [limit_viewable_dirs: %{enabled: false, viewable_dirs: []}, username: "apc", password: "apc"]
-        start_server(:sample, "10.216.251.46", 2525, "/home/user", opts)
+        start_server(:sample, "0.0.0.0", 2525, "/home/user", opts)
     end
 
     

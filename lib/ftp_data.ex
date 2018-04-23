@@ -58,6 +58,32 @@ defmodule FtpData do
     {:reply, state, %{state | socket: socket, ftp_server_pid: new_server_pid}}
   end
 
+
+  @doc """
+  Handler used to create a new passive socket listener. Will start the FtpPasvSocket GenServer
+  """
+  def handle_call({:pasv, ip, port} , _from, state = %{server_name: server_name, aborted: aborted}) do
+    passive_listener_name = Enum.join([server_name, "_", "pasv_socket"]) |> String.to_atom
+    {return_val, pasv_mode_status} = 
+    case :ranch.start_listener(passive_listener_name, 10, :ranch_tcp, [port: port, ip: ip], FtpPasvSocket, [%{ftp_data_pid: self(), aborted: aborted, socket: nil, server_name: server_name}]) do
+      {:ok, passive_listener_pid} ->
+        logger_debug "Started new pasv socket listener: #{inspect passive_listener_pid}"
+        Process.put(:passive_listener_name, passive_listener_name)
+        {:ok, true}
+      {:error, {:already_started, passive_listener_pid}} -> 
+        :ranch.stop_listener(passive_listener_name)
+        :ranch.start_listener(passive_listener_name, 10, :ranch_tcp, [port: port, ip: ip], FtpPasvSocket, [%{ftp_data_pid: self(), aborted: aborted, socket: nil, server_name: server_name}])
+        logger_debug "Stopped old pasv socket listener and started new pasv socket listener: #{inspect passive_listener_pid}"
+        Process.put(:passive_listener_name, passive_listener_name)
+        {:ok, true}
+      {:error, error} ->
+        logger_debug "Could not start new pasv socket listener. Reason: #{inspect error}"
+        {{:error, error}, false}       
+    end
+    
+    {:reply, return_val, %{state | pasv_mode: pasv_mode_status}}
+  end
+
   
   @doc """
   Handler for determining with GenServer to send the retr command to. The `file` and `new_offset` arguments will then be passed to the 
@@ -116,24 +142,6 @@ defmodule FtpData do
       false -> Process.get(:ftp_active_socket_pid) |> FtpActiveSocket.stor(to_path)
     end
     {:noreply, state}
-  end
-
-  
-  @doc """
-  Handler used to create a new passive socket listener. Will start the FtpPasvSocket GenServer
-  """
-  def handle_info({:pasv, ip, port} , state = %{server_name: server_name, aborted: aborted}) do
-    passive_listener_name = Enum.join([server_name, "_", "pasv_socket"]) |> String.to_atom
-    case :ranch.start_listener(passive_listener_name, 10, :ranch_tcp, [port: port, ip: ip], FtpPasvSocket, [%{ftp_data_pid: self(), aborted: aborted, socket: nil, server_name: server_name}]) do
-      {:ok, passive_listener_pid} ->
-        logger_debug "Started new pasv socket listener: #{inspect passive_listener_pid}"
-      {:error, {:already_started, _passive_listener_pid}} -> 
-        :ranch.stop_listener(passive_listener_name)
-        :ranch.start_listener(passive_listener_name, 10, :ranch_tcp, [port: port, ip: ip], FtpPasvSocket, [%{ftp_data_pid: self(), aborted: aborted, socket: nil, server_name: server_name}])
-    end
-    
-    Process.put(:passive_listener_name, passive_listener_name)
-    {:noreply, %{state | pasv_mode: true}}
   end
   
   

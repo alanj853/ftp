@@ -360,10 +360,14 @@ defmodule FtpServer do
         put(:data_ip, ip_tuple_to_string(ip)) ## update data socket info with new ip
         put(:data_port, port_number) ## update data socket info with new port_number
         {h1, h2, h3, h4} = ip
-        pasv(ip, port_number)
-        :timer.sleep(100) ## need to sleep to give ranch time to create socket
-        send_message(@ftp_PASVOK, "Entering Passive Mode (#{inspect h1},#{inspect h2},#{inspect h3},#{inspect h4},#{inspect p1},#{inspect p2})")
-        {@ftp_REPLYMYSELF, ""}
+        case pasv(ip, port_number) do
+            :ok ->
+                send_message(@ftp_PASVOK, "Entering Passive Mode (#{inspect h1},#{inspect h2},#{inspect h3},#{inspect h4},#{inspect p1},#{inspect p2})")
+                {@ftp_REPLYMYSELF, ""}
+            {:error, _error} ->
+                send_message(@ftp_TRANSFERABORTED, "Error could not start pasv listenser.")
+                {@ftp_TRANSFERABORTED, ""}
+        end        
     end
 
     
@@ -1114,6 +1118,6 @@ defmodule FtpServer do
     end
 
     def pasv(ip, port) do
-        get(:ftp_data_pid) |> Kernel.send({:pasv, ip, port})
+        get(:ftp_data_pid) |> GenServer.call({:pasv, ip, port})
     end
 end
