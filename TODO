@@ -10,6 +10,7 @@
 10. Add ability to set logging level in realtime
 11. Remove all references to apc/schneider
 12. Look into handling more complex LIST commands
+13. Create a ETS Table in the ftp_supervisor.ex that all other modules use for storing state. 
 
 
 
