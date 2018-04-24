@@ -14,9 +14,9 @@ defmodule FtpServerListener do
     
     def init(state) do
         Process.flag(:trap_exit, true)
-        ip = Map.get(state, :ip)
-        port = Map.get(state, :port)
         server_name = Map.get(state, :server_name)
+        ip = FtpState.get(:ip)
+        port = FtpState.get(:port)
 
         IO.puts "FTP Server #{server_name} running. IP: #{inspect ip} Port: #{inspect port}"
         listener_name = Enum.join([server_name, "_control_socket"]) |> String.to_atom

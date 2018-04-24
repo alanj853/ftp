@@ -8,9 +8,9 @@ defmodule FtpAuth do
     `Ftp.start_server` as the credentials, and will compare those with any credentials an FTP client provides.
     """
 
-    def start_link(args = %{server_name: server_name}) do
+    def start_link(_args = %{server_name: server_name}) do
         name = Enum.join([server_name, "_ftp_auth"]) |> String.to_atom
-        GenServer.start_link(__MODULE__, args, name: name)
+        GenServer.start_link(__MODULE__, %{server_name: server_name, gen_server_name: name}, name: name)
     end
 
     def init(state) do
@@ -28,20 +28,24 @@ defmodule FtpAuth do
     def handle_call(:get_state, _from, state) do
         {:reply, state, state}
     end
-
-    def handle_call({:authenticate, username, password}, _from, state = %{authentication_function: nil, username: expected_username, password: expected_password}) do
-        {:reply, valid_username?(expected_username, username) && valid_password?(expected_password, password), state}
-    end
     
     @doc """
     Currently just support JWT authenication
     """
-    def handle_call({:authenticate, username, password}, _from, state = %{authentication_function: authentication_function}) do
+    def handle_call({:authenticate, username, password}, _from, state = %{server_name: server_name}) do
+        authentication_function = FtpState.get(:authentication_function)
+        
         result =
-        case authentication_function.(username, password) do
-            {:ok, _jwt, _user} -> true
-            {:error, :invalid_password} -> false
-            _some_other_authentication_method -> false ## will remove this when we support more than one external authentication method
+        if authentication_function == nil do
+            expected_username = FtpState.get(:username)
+            expected_password = FtpState.get(:password)
+            valid_username?(expected_username, username) && valid_password?(expected_password, password)
+        else
+            case authentication_function.(username, password) do
+                {:ok, _jwt, _user} -> true
+                {:error, :invalid_password} -> false
+                _some_other_authentication_method -> false ## will remove this when we support more than one external authentication method
+            end
         end
         {:reply, result, state}
     end

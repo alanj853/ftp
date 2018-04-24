@@ -8,9 +8,10 @@ defmodule FtpPasvSocket do
     @chunk_size 2048 ## Chunk size (in bytes) to send at a time
     
     
-    def start_link(ref, socket, transport, _opts = [%{ftp_data_pid: ftp_data_pid, aborted: aborted, socket: _initial_socket, server_name: server_name}]) do
-        new_server_name = Enum.join([server_name, "_", "ftp_pasv_socket"])
-        initial_state = %{ftp_data_pid: ftp_data_pid, aborted: aborted, socket: socket, server_name: new_server_name}
+    def start_link(ref, socket, transport, _opts = [%{server_name: server_name}]) do
+        gen_server_name = Enum.join([server_name, "_", "ftp_pasv_socket"])
+        initial_state = %{server_name: server_name, gen_server_name: gen_server_name}
+        FtpState.set(:pasv_socket, socket)
         pid  = :proc_lib.spawn_link(__MODULE__, :init, [ref, socket, transport, initial_state])
         {:ok, pid}
     end
@@ -27,13 +28,11 @@ defmodule FtpPasvSocket do
         {:ok, []}
     end
     
-    def start_listener(ref, _socket, state) do
-        ftp_data_pid = Map.get(state, :ftp_data_pid)
-        Process.put(:ftp_data_pid, ftp_data_pid)
-        logger_debug "Ftp Passive Starting..."
-        message_ftp_data({:ftp_pasv_socket_pid, self()}) ## tell parent my pid
+    def start_listener(ref, _socket, _state = %{server_name: server_name}) do
+        logger_debug server_name, "Ftp Passive Starting..."
+        FtpState.set(:ftp_pasv_socket_pid, self()) ## tell parent my pid
         :ranch.accept_ack(ref)
-        logger_debug "Got Connection on Passive socket"
+        logger_debug server_name, "Got Connection on Passive socket"
     end
 
     
@@ -62,9 +61,10 @@ defmodule FtpPasvSocket do
     the socket, as it expects that the socket will be closed and handled by whatever function is using the socket at the time
     of the abort. This just updates the `aborted` key of the `state`.
     """
-    def handle_call({:close_data_socket, :abort}, _from, state) do
-        logger_debug "Closing Data Socket (due to abort command)..."
-        {:reply, state, %{state | aborted: true}}
+    def handle_call({:close_data_socket, :abort}, _from, state = %{server_name: server_name}) do
+        logger_debug server_name, "Closing Data Socket (due to abort command)..."
+        FtpState.set(:aborted, true)
+        {:reply, state, state}
     end
 
     
@@ -72,12 +72,12 @@ defmodule FtpPasvSocket do
     Handler that is called when a client runs the "ls" command. This handler actually sends the data back to the client when in "active" mode has
     been selected
     """
-    def handle_cast({:list, file_info}, state = %{socket: socket}) do
-        logger_debug "Sending result from LIST command... -- #{inspect state}"
-        :gen_tcp.send(socket, file_info)
-        logger_debug "Result from LIST command sent. Sent #{inspect file_info}"
-        message_ftp_data(:socket_transfer_ok)
-        message_ftp_data(:close_pasv_socket)
+    def handle_cast({:list, file_info}, state = %{server_name: server_name}) do
+        logger_debug server_name, "Sending result from LIST command... -- #{inspect state}"
+        FtpState.get(:pasv_socket) |> :gen_tcp.send(file_info)
+        logger_debug server_name, "Result from LIST command sent. Sent #{inspect file_info}"
+        message_ftp_data(server_name, :socket_transfer_ok)
+        message_ftp_data(server_name, :close_pasv_socket)
         {:noreply, state}
     end
 
@@ -85,8 +85,9 @@ defmodule FtpPasvSocket do
     @doc """
     Handler that is called when a client runs the "put" command. This handler is the top level when a client wants to upload a file in "passive" mode
     """
-    def handle_cast({:stor, to_path}, state = %{socket: socket}) do
-        logger_debug "Receiving file..."
+    def handle_cast({:stor, to_path}, state = %{server_name: server_name}) do
+        logger_debug server_name, "Receiving file..."
+        socket = FtpState.get(:pasv_socket)
         Kernel.send(self(), {:recv, socket, to_path})
         {:noreply, state}
     end
@@ -95,10 +96,11 @@ defmodule FtpPasvSocket do
     @doc """
     Handler that is called when a client runs the "get" command. This handler is the top level when sending a file to the client in "passive" mode
     """
-    def handle_cast({:retr, file, new_offset}, state = %{socket: socket}) do
+    def handle_cast({:retr, file, new_offset}, state = %{server_name: server_name}) do
         file_info = transfer_info(file, @chunk_size, new_offset)
-        logger_debug "Sending file (#{inspect file_info})..."
-        send_file(socket, file, file_info, new_offset, @chunk_size, 1)
+        logger_debug server_name, "Sending file (#{inspect file_info})..."
+        socket = FtpState.get(:pasv_socket)
+        send_file(server_name, socket, file, file_info, new_offset, @chunk_size, 1)
         {:noreply, state}
     end
 
@@ -108,13 +110,13 @@ defmodule FtpPasvSocket do
     is finished executing, it makes a call to this handler, which in turn will call the send function again, provided the data transfer
     has not been aborted.
     """
-    def handle_info({:send, {socket, file, file_info, new_offset, bytes, transmission_number}}, state = %{aborted: aborted}) do
+    def handle_info({:send, {socket, file, file_info, new_offset, bytes, transmission_number}}, state = %{server_name: server_name, aborted: aborted}) do
         case aborted do
           false ->
-            send_file(socket, file, file_info, new_offset, bytes, transmission_number)
+            send_file(server_name, socket, file, file_info, new_offset, bytes, transmission_number)
           true ->
-            logger_debug "Aborting this transfer"
-            message_ftp_data(:socket_transfer_failed)
+            logger_debug server_name, "Aborting this transfer"
+            message_ftp_data(server_name, :socket_transfer_failed)
         end
         {:noreply, state}
     end
@@ -123,8 +125,8 @@ defmodule FtpPasvSocket do
     @doc """
     Handler that provides looping with the `receive_file` function
     """
-    def handle_info({:recv, socket, to_path}, state) do
-        receive_file(socket, to_path)
+    def handle_info({:recv, socket, to_path}, state = %{server_name: server_name}) do
+        receive_file(server_name, socket, to_path)
         {:noreply, state}
     end
 
@@ -141,15 +143,15 @@ defmodule FtpPasvSocket do
         iex> return_val
         %{file_size: 26, last_transmission_size: 2, transmissions: 9}
     """
-    def transfer_info(file, chunk_size, offset, test_mode \\ false) do
+    def transfer_info(file, chunk_size, offset) do
     {:ok, info} = File.stat(file)
     file_size = Map.get(info, :size) - offset
     no_transmissions_needed = Integer.floor_div((file_size), chunk_size) + 1
     last_transmission_size = file_size - (no_transmissions_needed-1)*chunk_size
-    case test_mode do
-        true -> :ok
-        false -> logger_debug "For filesize #{inspect file_size}  number of transmissions real = #{inspect no_transmissions_needed}   last_transmission_size = #{last_transmission_size}"
-    end
+    # case test_mode do
+    #     true -> :ok
+    #     false -> logger_debug server_name, "For filesize #{inspect file_size}  number of transmissions real = #{inspect no_transmissions_needed}   last_transmission_size = #{last_transmission_size}"
+    # end
     %{file_size: file_size, transmissions: no_transmissions_needed, last_transmission_size: last_transmission_size}
     end
 
@@ -197,14 +199,14 @@ defmodule FtpPasvSocket do
 
     NOT UNIT-TESTABLE
     """
-    def send_file(socket, file, file_info, offset, bytes, transmission_number) do
+    def send_file(server_name, socket, file, file_info, offset, bytes, transmission_number) do
         no_transmissions = Map.get(file_info,:transmissions)
         status = get_transfer_status(transmission_number, no_transmissions)
         cond do
             transmission_number == (no_transmissions+1) ->
-            logger_debug "File Sent"
-            message_ftp_data(:socket_transfer_ok)
-            message_ftp_data(:close_pasv_socket)
+            logger_debug server_name, "File Sent"
+            message_ftp_data(server_name, :socket_transfer_ok)
+            message_ftp_data(server_name, :close_pasv_socket)
             transmission_number == no_transmissions -> 
             bytes = Map.get(file_info,:last_transmission_size)
             send_chunk(socket, file, offset, bytes)
@@ -215,7 +217,7 @@ defmodule FtpPasvSocket do
             send_chunk(socket, file, offset, bytes)
             case status do
                 :no_status -> :ok
-                _ -> logger_debug "File Transfer status #{status}"
+                _ -> logger_debug server_name, "File Transfer status #{status}"
             end
             new_offset = offset+bytes
             transmission_number = transmission_number+1
@@ -231,7 +233,7 @@ defmodule FtpPasvSocket do
     NOT UNIT-TESTABLE
     """
     def send_chunk(socket, file, offset, bytes) do
-        #logger_debug "trying to send chunk for #{inspect bytes} from offset #{offset}"
+        #logger_debug server_name, "trying to send chunk for #{inspect bytes} from offset #{offset}"
         case :ranch_tcp.sendfile(socket, file, offset, bytes) do
             {:ok, _exit_code} -> :chunk_sent
             {:error, _reason} -> :chunk_not_sent
@@ -244,8 +246,8 @@ defmodule FtpPasvSocket do
 
     NOT UNIT_TESTABLE
     """
-    def message_ftp_data(message) do
-        pid = Process.get(:ftp_data_pid)
+    def message_ftp_data(server_name, message) do
+        pid = FtpState.get(:ftp_data_pid)
         Kernel.send(pid, {:from_pasv_socket, message})
     end
 
@@ -258,8 +260,8 @@ defmodule FtpPasvSocket do
 
     NOT UNIT_TESTABLE
     """
-    def logger_debug(message) do
-        pid = Process.get(:ftp_data_pid)
+    def logger_debug(server_name, message) do
+        pid = FtpState.get(:ftp_data_pid)
         Kernel.send(pid, {:ftp_pasv_log_message, message})
     end
 
@@ -268,22 +270,22 @@ defmodule FtpPasvSocket do
 
     NOT UNIT_TESTABLE
     """
-    def receive_file(socket, to_path) do
+    def receive_file(server_name, socket, to_path) do
         case :ranch_tcp.recv(socket, 0, 10000) do
             {:ok, new_file} ->
                 File.write(to_path, new_file, [:append])
-                receive_file(socket, to_path)
+                receive_file(server_name, socket, to_path)
                 #Kernel.send(self(), {:recv, socket, to_path})
             {:error, :closed} ->
-                logger_debug "Finished receiving file."
+                logger_debug server_name, "Finished receiving file."
                 {:ok, info} = File.stat(to_path)
                 file_size = Map.get(info, :size)
-                logger_debug("This is size: #{inspect file_size}")
-                logger_debug "File received."
-                message_ftp_data(:socket_transfer_ok)
-                message_ftp_data(:close_pasv_socket)
+                logger_debug(server_name, "This is size: #{inspect file_size}")
+                logger_debug server_name, "File received."
+                message_ftp_data(server_name, :socket_transfer_ok)
+                message_ftp_data(server_name, :close_pasv_socket)
             {:error, other_reason} ->
-                logger_debug "Error receiving file: #{other_reason}"
+                logger_debug server_name, "Error receiving file: #{other_reason}"
         end
     end
 

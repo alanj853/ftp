@@ -9,6 +9,8 @@ defmodule FtpSupervisor do
     
     def start_link(args) do
         server_name = Map.get(args, :server_name)
+        FtpState.start_link(server_name)
+        # FtpState.set(:server_name, server_name)
         name = Enum.join([server_name, "_ftp_supervisor"]) |> String.to_atom
         result = 
         case Supervisor.start_link(__MODULE__, [], name: name) do
@@ -26,11 +28,19 @@ defmodule FtpSupervisor do
     end
 
     
-    def start_workers(supervisor, _args=%{ip: ip, port: port, directory: root_directory, log_file_directory: log_file_directory, debug: debug, machine: machine, username: username, password: password, server_name: server_name, limit_viewable_dirs: limit_viewable_dirs, authentication_function: authentication_function}) do
+    def start_workers(supervisor, args = %{server_name: server_name}) do
+        for {key, val} <- args, do: FtpState.set(key, val, server_name)
+        
         {:ok, ftp_data_pid} = Supervisor.start_child(supervisor, worker(FtpData, [%{server_name: server_name}]))
-        {:ok, ftp_logger_pid} = Supervisor.start_child(supervisor, worker(FtpLogger, [%{debug: debug, log_file_directory: log_file_directory, machine: machine, server_name: server_name}]))
-        {:ok, ftp_auth_pid} = Supervisor.start_child(supervisor, supervisor(FtpAuth, [%{server_name: server_name, authentication_function: authentication_function, username: username, password: password}]))
-        {:ok, _ftp_sub_sup_pid} = Supervisor.start_child(supervisor, supervisor(FtpSubSupervisor, [%{ftp_auth_pid: ftp_auth_pid, ftp_logger_pid: ftp_logger_pid, ftp_data_pid: ftp_data_pid, root_dir: root_directory, username: username, password: password, ip: ip, port: port, debug: debug, timeout: :infinity, restart_time: 500, server_name: server_name, limit_viewable_dirs: limit_viewable_dirs}]))
+        {:ok, ftp_logger_pid} = Supervisor.start_child(supervisor, worker(FtpLogger, [%{server_name: server_name}]))
+        {:ok, ftp_auth_pid} = Supervisor.start_child(supervisor, supervisor(FtpAuth, [%{server_name: server_name}]))
+        {:ok, ftp_sub_sup_pid} = Supervisor.start_child(supervisor, supervisor(FtpSubSupervisor, [%{server_name: server_name}]))
+
+        FtpState.set(:ftp_data_pid, ftp_data_pid, server_name)
+        FtpState.set(:ftp_logger_pid, ftp_logger_pid, server_name)
+        FtpState.set(:ftp_auth_pid, ftp_auth_pid, server_name)
+        FtpState.set(:ftp_sub_sup_pid, ftp_sub_sup_pid, server_name)
+
     end
 
     

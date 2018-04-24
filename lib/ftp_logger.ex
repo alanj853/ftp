@@ -10,15 +10,18 @@ defmodule FtpLogger do
     require Logger
     use GenServer
 
-    def start_link(_args = %{debug: debug, log_file_directory: dir, machine: machine, server_name: server_name}) do
-        dir = String.trim_trailing(dir, "/")
+    def start_link(_args = %{server_name: server_name}) do
+        dir = FtpState.get(:log_file_directory) |> String.trim_trailing("/")
         log_file = Enum.join([dir, "/#{to_string(server_name)}_log.txt"])
+        FtpState.set(:log_file, log_file)
         name = Enum.join([server_name, "_ftp_logger"]) |> String.to_atom
-        {:ok, _pid} = GenServer.start_link(__MODULE__, %{debug: debug, log_file: log_file, machine: machine, server_name: server_name}, name: name)
+        {:ok, _pid} = GenServer.start_link(__MODULE__, %{gen_server_name: name, server_name: server_name}, name: name)
     end
 
-    def init(state = %{log_file: log_file, machine: machine}) do
+    def init(state = %{server_name: server_name}) do
         Logger.info "Started Logger"
+        machine = FtpState.get(:machine)
+        log_file = FtpState.get(:log_file)
         case machine do ## check to see if we're on a Desktop
             :desktop -> 
                 Logger.info("We're on a desktop. Every debug message will be logged with Logger.debug and also logged to #{inspect @desktop_logfile}")
@@ -44,8 +47,11 @@ defmodule FtpLogger do
     @doc """
     Handler to handle the log messages sent from FtpServer. These messages are prepended with the `server_name` before they get logged.
     """
-    def handle_info({:ftp_server_log_message, message, priority}, state = %{debug: debug, log_file: log_file, machine: machine, server_name: server_name}) do
+    def handle_info({:ftp_server_log_message, message, priority}, state = %{server_name: server_name}) do
         message = Enum.join([server_name, " ", message])
+        machine = FtpState.get(:machine)
+        log_file = FtpState.get(:log_file)
+        debug = FtpState.get(:debug)
         case debug do
             0 -> 
                 :ok

@@ -83,7 +83,6 @@ defmodule FtpServer do
     
     def start_listener(listener_pid, socket, state) do
         setup_dd(state)
-        FtpData.set_server_pid(get(:ftp_data_pid), self())
         :ranch.accept_ack(listener_pid)
         set_socket_option(socket, :keepalive, true, false) ## we don't want control socket to close due to an inactivity timeout while a transfer is on-going on the data socket
         socket_status = Port.info(socket)
@@ -137,6 +136,7 @@ defmodule FtpServer do
                     false -> send_message(@ftp_FILEFAIL, "Transfer Failed")
                 end
             :socket_close_ok -> 1#send_message(@ftp_TRANSFEROK, "Transfer Complete", socket)
+            :socket_close_error -> send_message(500, "Did not successfully close socket")
             :socket_create_ok -> 2#send_message(@ftp_TRANSFEROK, "Transfer Complete", socket)
             _ -> :ok
         end
@@ -1018,8 +1018,8 @@ defmodule FtpServer do
     """
     def get(key \\ nil) do
         case key do
-          nil -> Process.get(:data_dictionary)
-          _ -> Process.get(:data_dictionary) |> Map.get(key)
+          nil -> FtpState.get_all()
+          _ -> FtpState.get(key)
         end
     end
 
@@ -1098,7 +1098,7 @@ defmodule FtpServer do
     end
 
     def create_socket(ip, port) do
-        get(:ftp_data_pid) |> Kernel.send({:create_socket, ip, port})
+        get(:ftp_data_pid) |> GenServer.call({:create_socket, ip, port})
     end
 
     def stor(working_path) do

@@ -8,15 +8,14 @@ defmodule FtpActiveSocket do
 
   @chunk_size 2048
   
-  def start_link(_state = %{ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: server_name}) do
+  def start_link(_state = %{server_name: server_name}) do
       name = Enum.join([server_name, "_ftp_active_socket"]) |> String.to_atom
-      initial_state = %{ socket: nil, ftp_data_pid: ftp_data_pid, aborted: aborted, server_name: name}
+      initial_state = %{ server_name: server_name, gen_server_name: name}
       GenServer.start_link(__MODULE__, initial_state, name: name)
   end
   
   
-  def init(state = %{ftp_data_pid: ftp_data_pid}) do
-      Process.put(:ftp_data_pid, ftp_data_pid)
+  def init(state) do
       {:ok, state}
   end
 
@@ -59,19 +58,21 @@ defmodule FtpActiveSocket do
   @doc """
   Handler to reset to the Active Server socket state to the default state
   """
-  def handle_cast(:reset_state, _state=%{ftp_data_pid: ftp_data_pid, server_name: server_name}) do
-    logger_debug "Resetting Active Socket Server State"
-    {:noreply, %{socket: nil, ftp_data_pid: ftp_data_pid, aborted: false, server_name: server_name}}
+  def handle_cast(:reset_state, state=%{server_name: server_name}) do
+    logger_debug server_name, "Resetting Active Socket Server State"
+    FtpState.set(:active_socket, nil)
+    FtpState.set(:aborted, false)
+    {:noreply, state}
   end
 
 
   @doc """
   Handler that is called when a client runs the "get" command. This handler is the top level when sending a file to the client in "active" mode
   """
-  def handle_cast({:retr, file, new_offset} , state=%{socket: socket}) do
+  def handle_cast({:retr, file, new_offset} , state=%{server_name: server_name}) do
     file_info = transfer_info(file, @chunk_size, new_offset)
-    logger_debug "Sending file (#{inspect file_info})..."
-    send_file(socket, file, file_info, new_offset, @chunk_size, 1)
+    logger_debug server_name, "Sending file (#{inspect file_info})..."
+    send_file(server_name, file, file_info, new_offset, @chunk_size, 1)
     {:noreply, state}
   end
 
@@ -79,8 +80,9 @@ defmodule FtpActiveSocket do
   @doc """
   Handler that is called when a client runs the "put" command. This handler is the top level when a client wants to upload a file in "active" mode
   """
-  def handle_cast({:stor, to_path} , state = %{socket: socket}) do
-    logger_debug "Receiving file..."
+  def handle_cast({:stor, to_path} , state = %{server_name: server_name}) do
+    logger_debug server_name, "Receiving file..."
+    socket = FtpState.get(:active_socket)
     Kernel.send(self(), {:recv, socket, to_path})
     {:noreply, state}
   end
@@ -90,13 +92,14 @@ defmodule FtpActiveSocket do
   Handler that is called when a client runs the "ls" command. This handler actually sends the data back to the client when in "active" mode has
   been selected
   """
-  def handle_cast({:list, file_info} , state=%{socket: socket}) do
-    logger_debug "Sending result from LIST command..."
+  def handle_cast({:list, file_info} , state=%{server_name: server_name}) do
+    logger_debug server_name, "Sending result from LIST command..."
+    socket = FtpState.get(:active_socket)
     :gen_tcp.send(socket, file_info)
-    logger_debug "Result from LIST command sent. Sent #{inspect file_info}"
-    message_ftp_data(:socket_transfer_ok)
-    new_socket_state = close_socket(socket)
-    {:noreply, %{state | socket: new_socket_state}}
+    logger_debug server_name, "Result from LIST command sent. Sent #{inspect file_info}"
+    message_ftp_data(server_name, :socket_transfer_ok)
+    close_socket(server_name)
+    {:noreply, state}
   end
 
 
@@ -104,20 +107,26 @@ defmodule FtpActiveSocket do
   Handler used when the FTP Server wants to close the active data socket. Calls the `close_socket` function. Handles all cases of closing a
   socket except an abort command. This is handled with the `{close_data_socet, :abort}` handler.
   """
-  def handle_call(:close_data_socket, _from, state=%{socket: socket}) do
-    logger_debug "Closing Data Socket..."
-    new_socket_state = close_socket(socket)
-    message_ftp_data(:socket_close_ok)
-    {:reply, state, %{state | socket: new_socket_state}}
+  def handle_call(:close_data_socket, _from, state=%{server_name: server_name}) do
+    logger_debug server_name, "Closing Data Socket..."
+    socket = FtpState.get(:active_socket)
+    case close_socket(server_name) do
+      :ok ->
+        message_ftp_data(server_name, :socket_close_ok)
+      {:error, error} -> 
+        logger_debug server_name, "Error while attempting to close Data Socket #{inspect socket}. Reason: #{error}."
+        message_ftp_data(server_name, :socket_close_error)
+    end
+    {:reply, state, state}
   end
 
 
   @doc """
   Handler used when the FTP Server wants to close the active data socket from receiving an abort command. Calls the `close_socket` function.
   """
-  def handle_call({:close_data_socket, :abort}, _from, state) do
-    logger_debug "Closing Data Socket (due to abort command)..."
-    #new_socket_state = close_socket(socket) ## there is acutally no need to close the data socket here as the socket will already have been closed by whatever function was in use at the time of the abort
+  def handle_call({:close_data_socket, :abort}, _from, state = %{server_name: server_name}) do
+    logger_debug server_name, "Closing Data Socket (due to abort command)..."
+    #new_socket_state = close_socket(server_name) ## there is acutally no need to close the data socket here as the socket will already have been closed by whatever function was in use at the time of the abort
     {:reply, state, %{state | aborted: true}}
   end
 
@@ -125,13 +134,13 @@ defmodule FtpActiveSocket do
   @doc """
   Handler to create the active socket. Does so using `:ranch_tcp.connect`
   """
-  def handle_call({:create_socket, new_ip, new_port}, _from, state) do
-    logger_debug "Connecting  to #{inspect new_ip}:#{inspect new_port}"
+  def handle_call({:create_socket, new_ip, new_port}, _from, state = %{server_name: server_name}) do
+    logger_debug server_name, "Connecting  to #{inspect new_ip}:#{inspect new_port}"
     {:ok, socket} = :ranch_tcp.connect(new_ip, new_port ,[active: false, mode: :binary, packet: :raw, exit_on_close: true, linger: {true, 100}]) 
     socket_status = Port.info(socket)
-    logger_debug "This is new data_socket #{inspect socket} info: #{inspect socket_status}"
-    message_ftp_data(:socket_create_ok)
-    {:reply, state, %{state | socket: socket}}
+    logger_debug server_name, "This is new data_socket #{inspect socket} info: #{inspect socket_status}"
+    message_ftp_data(server_name, :socket_create_ok)
+    {:reply, state, state}
   end
 
 
@@ -146,16 +155,17 @@ defmodule FtpActiveSocket do
   @doc """
   Handler that provides looping with the `receive_file` function
   """
-  def handle_info({:recv, socket, to_path}, state) do
-      receive_file(socket, to_path)
+  def handle_info({:recv, socket, to_path}, state = %{server_name: server_name}) do
+      receive_file(server_name, socket, to_path)
       {:noreply, state}
   end
 
   @doc """
   Handler for setting the socket state after PUT command has finished
   """
-  def handle_info({:recv_finished, new_socket}, state) do
-    {:noreply, %{state | socket: new_socket}}
+  def handle_info({:recv_finished, new_socket}, state = %{server_name: server_name}) do
+    FtpState.set(:active_socket, new_socket)
+    {:noreply, state}
   end
 
   
@@ -164,19 +174,16 @@ defmodule FtpActiveSocket do
   is finished executing, it makes a call to this handler, which in turn will call the send function again, provided the data transfer
   has not been aborted.
   """
-  def handle_info({:send, {socket, file, file_info, new_offset, bytes, transmission_number}}, state = %{aborted: aborted}) do
-    new_socket =
-    case aborted do
+  def handle_info({:send, {file, file_info, new_offset, bytes, transmission_number}}, state = %{server_name: server_name}) do
+    case FtpState.get(:aborted) do
       false ->
-        send_file(socket, file, file_info, new_offset, bytes, transmission_number)
-        socket
+        send_file(server_name, file, file_info, new_offset, bytes, transmission_number)
       true ->
-        logger_debug "Aborting this transfer"
-        new_socket = close_socket(socket)
-        message_ftp_data(:socket_transfer_failed)
-        new_socket
-    end
-    {:noreply, %{state | socket: new_socket}}
+        logger_debug server_name, "Aborting this transfer"
+        close_socket(server_name)
+        message_ftp_data(server_name, :socket_transfer_failed)
+      end
+    {:noreply, state}
   end
 
   
@@ -186,30 +193,31 @@ defmodule FtpActiveSocket do
 
   NOT UNIT-TESTABLE
   """
-  def send_file(socket, file, file_info, offset, bytes, transmission_number) do
+  def send_file(server_name, file, file_info, offset, bytes, transmission_number) do
+    socket = FtpState.get(:active_socket)
     no_transmissions = Map.get(file_info,:transmissions)
     status = get_transfer_status(transmission_number, no_transmissions)
     cond do
       transmission_number == (no_transmissions+1) ->
-        logger_debug "File Sent"
-        message_ftp_data(:socket_transfer_ok)
-        close_socket(socket)
+        logger_debug server_name, "File Sent"
+        message_ftp_data(server_name, :socket_transfer_ok)
+        close_socket(server_name)
         :whole_file_sent
       transmission_number == no_transmissions -> 
         bytes = Map.get(file_info,:last_transmission_size)
         send_chunk(socket, file, offset, bytes)
         new_offset = offset+bytes
         transmission_number = transmission_number+1
-        Kernel.send(self(), {:send, {socket, file, file_info, new_offset, bytes, transmission_number}}) 
+        Kernel.send(self(), {:send, {file, file_info, new_offset, bytes, transmission_number}}) 
       true ->
         send_chunk(socket, file, offset, bytes)
         case status do
             :no_status -> :ok
-            _ -> logger_debug "File Transfer status #{status}"
+            _ -> logger_debug server_name, "File Transfer status #{status}"
         end
         new_offset = offset+bytes
         transmission_number = transmission_number+1
-        Kernel.send(self(), {:send, {socket, file, file_info, new_offset, bytes, transmission_number}}) 
+        Kernel.send(self(), {:send, {file, file_info, new_offset, bytes, transmission_number}}) 
     end
           
   end
@@ -222,7 +230,7 @@ defmodule FtpActiveSocket do
   NOT UNIT-TESTABLE
   """
   def send_chunk(socket, file, offset, bytes) do
-    #logger_debug "trying to send chunk for #{inspect bytes} from offset #{offset}"
+    #logger_debug server_name, "trying to send chunk for #{inspect bytes} from offset #{offset}"
     case :ranch_tcp.sendfile(socket, file, offset, bytes) do
       {:ok, _exit_code} -> :chunk_sent
       {:error, _reason} -> :chunk_not_sent
@@ -242,15 +250,15 @@ defmodule FtpActiveSocket do
     iex> return_val
     %{file_size: 26, last_transmission_size: 2, transmissions: 9}
   """
-  def transfer_info(file, chunk_size, offset, test_mode \\ false) do
+  def transfer_info(file, chunk_size, offset) do
     {:ok, info} = File.stat(file)
     file_size = Map.get(info, :size) - offset
     no_transmissions_needed = Integer.floor_div((file_size), chunk_size) + 1
     last_transmission_size = file_size - (no_transmissions_needed-1)*chunk_size
-    case test_mode do
-      true -> :ok
-      false -> logger_debug "For filesize #{inspect file_size}  number of transmissions real = #{inspect no_transmissions_needed}   last_transmission_size = #{last_transmission_size}"
-    end
+    # case test_mode do
+    #   true -> :ok
+    #   false -> logger_debug server_name, "For filesize #{inspect file_size}  number of transmissions real = #{inspect no_transmissions_needed}   last_transmission_size = #{last_transmission_size}"
+    # end
     %{file_size: file_size, transmissions: no_transmissions_needed, last_transmission_size: last_transmission_size}
   end
 
@@ -299,8 +307,8 @@ defmodule FtpActiveSocket do
 
   NOT UNIT_TESTABLE
   """
-  def message_ftp_data(message) do
-    pid = Process.get(:ftp_data_pid)
+  def message_ftp_data(server_name, message) do
+    pid = FtpState.get(:ftp_data_pid)
     Kernel.send(pid, {:from_active_socket, message})
   end
 
@@ -313,8 +321,8 @@ defmodule FtpActiveSocket do
 
   NOT UNIT_TESTABLE
   """
-  def logger_debug(message) do
-    pid = Process.get(:ftp_data_pid)
+  def logger_debug(server_name, message) do
+    pid = FtpState.get(:ftp_data_pid)
     Kernel.send(pid, {:ftp_active_log_message, message})
   end
 
@@ -324,23 +332,23 @@ defmodule FtpActiveSocket do
 
   NOT UNIT_TESTABLE
   """
-  def receive_file(socket, to_path) do
+  def receive_file(server_name, socket, to_path) do
     case :ranch_tcp.recv(socket, 0, 10000) do
         {:ok, new_file} ->
             File.write(to_path, new_file, [:append])
-            receive_file(socket, to_path)
+            receive_file(server_name, socket, to_path)
             #Kernel.send(self(), {:recv, socket, to_path})
         {:error, :closed} ->
-            logger_debug "Finished receiving file."
+            logger_debug server_name, "Finished receiving file."
             {:ok, info} = File.stat(to_path)
             file_size = Map.get(info, :size)
-            logger_debug("This is size: #{inspect file_size}")
-            logger_debug "File received."
-            message_ftp_data(:socket_transfer_ok)
-            new_socket_state = close_socket(socket)
+            logger_debug(server_name, "This is size: #{inspect file_size}")
+            logger_debug server_name, "File received."
+            message_ftp_data(server_name, :socket_transfer_ok)
+            new_socket_state = close_socket(server_name)
             Kernel.send(self(), {:recv_finished, new_socket_state})
         {:error, other_reason} ->
-            logger_debug "Error receiving file: #{other_reason}"
+            logger_debug server_name, "Error receiving file: #{other_reason}"
     end
   end
 
@@ -349,22 +357,25 @@ defmodule FtpActiveSocket do
 
   NOT UNIT_TESTABLE
   """
-  def close_socket(socket) do
+  def close_socket(server_name) do
+    socket = FtpState.get(:active_socket)
     case (socket == nil) do 
           true ->
-            logger_debug "Data Socket #{inspect socket} already closed."
+            logger_debug server_name, "Data Socket #{inspect socket} already closed."
             nil
           false ->
               case :ranch_tcp.shutdown(socket, :read_write) do
                   :ok ->
-                    logger_debug "Data Socket #{inspect socket} successfully closed."
-                    nil
+                    logger_debug server_name, "Data Socket #{inspect socket} successfully closed."
+                    FtpState.set(:active_socket, nil)
+                    :ok
                   {:error, :closed} -> 
-                    logger_debug "Data Socket #{inspect socket} already closed."
-                    nil
+                    logger_debug server_name, "Data Socket #{inspect socket} already closed."
+                    FtpState.set(:active_socket, nil)
+                    :ok
                   {:error, other_reason} -> 
-                    logger_debug "Error while attempting to close Data Socket #{inspect socket}. Reason: #{other_reason}."
-                    socket
+                    FtpState.set(:active_socket, socket)
+                    {:error, other_reason}
               end
       end
   end
