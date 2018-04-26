@@ -353,9 +353,7 @@ defmodule FtpServer do
     Function to handle pasv command
     """
     def handle_pasv(_command) do
-        p1 = :rand.uniform(230)
-        p2 = :rand.uniform(230)
-        port_number = p1*256 + p2
+        {port_number, p1, p2} = get_pasv_port()
         ip = get(:control_ip)
         put(:data_ip, ip_tuple_to_string(ip)) ## update data socket info with new ip
         put(:data_port, port_number) ## update data socket info with new port_number
@@ -364,8 +362,8 @@ defmodule FtpServer do
             :ok ->
                 send_message(@ftp_PASVOK, "Entering Passive Mode (#{inspect h1},#{inspect h2},#{inspect h3},#{inspect h4},#{inspect p1},#{inspect p2})")
                 {@ftp_REPLYMYSELF, ""}
-            {:error, _error} ->
-                send_message(@ftp_TRANSFERABORTED, "Error could not start pasv listenser.")
+            {:error, error} ->
+                send_message(@ftp_TRANSFERABORTED, "Error could not start pasv listenser. Reason: #{error}")
                 {@ftp_TRANSFERABORTED, ""}
         end        
     end
@@ -1084,6 +1082,46 @@ defmodule FtpServer do
     defp ip_tuple_to_string(ip) do
        {h1, h2, h3, h4} = ip
        Enum.join([to_string(h1), to_string(h2), to_string(h3), to_string(h4)], ".")
+    end
+
+    @doc """
+    Function to get passive socket port number. Port number is generated
+    by getting 2 random numbers, p1 and p2, and running the following calculation
+    on them (as per RFC):
+        port_number = p1*256 + p2
+    The function then checks if the port is available for use. If it's not, it looks
+    for another port untils it finds one that is available. When it finds one,
+    it returns the port number, p1 and p2, all as as type `Integer` in a tuple.
+    """
+    def get_pasv_port() do
+        p1 = :rand.uniform(230)
+        p2 = :rand.uniform(230)
+        port_number = p1*256 + p2
+        if port_number < 1024 or !port_available?(port_number) do
+            logger_debug "still trying to get random no..."
+            get_pasv_port()
+        else
+            {port_number, p1, p2}
+        end
+    end
+
+    @doc """
+    Function to check if `port` is available.
+    """
+    def port_available?(port) do
+        ip = get(:control_ip)
+        case :gen_tcp.listen(port, [ip: ip]) do
+            {:ok, socket} ->
+                logger_debug "Port #{inspect port} is available"
+                :gen_tcp.close(socket)
+                true
+            {:error, :eaddrinuse} ->
+                logger_debug "Port #{inspect port} is not available because it's in use"
+                false
+            {:error, other_reason} ->
+                logger_debug "Port #{inspect port} is not available. Reason #{other_reason}"
+                false                
+        end
     end
 
     ## Functions for messaging FtpData by sending kernel messages.

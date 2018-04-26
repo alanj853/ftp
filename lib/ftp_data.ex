@@ -70,12 +70,17 @@ defmodule FtpData do
         logger_debug "Started new pasv socket listener: #{inspect passive_listener_pid}"
         Process.put(:passive_listener_name, passive_listener_name)
         {:ok, true}
-      {:error, {:already_started, passive_listener_pid}} -> 
+      {:error, {:already_started, _passive_listener_pid}} -> 
         :ranch.stop_listener(passive_listener_name)
-        :ranch.start_listener(passive_listener_name, 10, :ranch_tcp, [port: port, ip: ip], FtpPasvSocket, [%{ftp_data_pid: self(), aborted: aborted, socket: nil, server_name: server_name}])
-        logger_debug "Stopped old pasv socket listener and started new pasv socket listener: #{inspect passive_listener_pid}"
-        Process.put(:passive_listener_name, passive_listener_name)
-        {:ok, true}
+        case :ranch.start_listener(passive_listener_name, 10, :ranch_tcp, [port: port, ip: ip], FtpPasvSocket, [%{ftp_data_pid: self(), aborted: aborted, socket: nil, server_name: server_name}]) do
+          {:ok, passive_listener_pid} ->
+            logger_debug "Stopped old pasv socket listener and started new pasv socket listener: #{inspect passive_listener_pid}"
+            Process.put(:passive_listener_name, passive_listener_name)
+            {:ok, true}
+          {:error, error} ->
+            logger_debug "Could not start new pasv socket listener, even after stopping the old one. Reason: #{inspect error}"
+            {{:error, error}, false}
+        end
       {:error, error} ->
         logger_debug "Could not start new pasv socket listener. Reason: #{inspect error}"
         {{:error, error}, false}       
@@ -84,7 +89,30 @@ defmodule FtpData do
     {:reply, return_val, %{state | pasv_mode: pasv_mode_status}}
   end
 
-  
+  @doc """
+  Handler for creating a new data_socket. Will call the  FtpPasvSocket GenServer or FtpActiveSocket GenServer, 
+  depending on `pasv_mode`. If `pasv` mode is true, the socket isn't actually created as the ftp passive socket listener will always have already
+  been started at this point because the "PASV" command will have been sent to the server
+  """
+  def handle_call({:create_socket, new_ip, new_port}, state = %{pasv_mode: pasv_mode, server_name: server_name}) do
+    case pasv_mode do
+      true ->
+        logger_debug "No need to create socket, Passing this to pasv socket..."
+        :ok 
+      false ->
+        logger_debug "Passing this to active socket..."
+        pid =
+        case FtpActiveSocket.start_link(%{ftp_data_pid: self(), aborted: false, server_name: server_name}) do
+          {:ok, pid} -> pid
+          {:error, {:already_started, pid}} -> pid
+        end
+        logger_debug "This is active socket pid #{inspect pid}..."
+        Process.put(:ftp_active_socket_pid, pid)
+        FtpActiveSocket.create_socket(pid, new_ip, new_port)
+    end
+    {:noreply, state}
+  end
+
   @doc """
   Handler for determining with GenServer to send the retr command to. The `file` and `new_offset` arguments will then be passed to the 
   chosen GenServer.
@@ -130,18 +158,37 @@ defmodule FtpData do
   depending on `pasv_mode`.
   """
   def handle_info({:stor, to_path}, state=%{pasv_mode: pasv_mode}) do
+    new_state = 
     case pasv_mode do
-      true -> 
+      true ->
         case Process.get(:ftp_pasv_socket_pid) do
           nil ->
-            #logger_debug "Waiting for FtpPasvSocket GenServer to come available"
+            # logger_debug "Waiting for FtpPasvSocket GenServer to come available"
             Kernel.send(self(), {:stor, to_path})
+            state
           pid ->
-            FtpPasvSocket.stor(pid, to_path)
+            if Process.alive? pid do
+              case FtpPasvSocket.stor(pid, to_path) do
+                :ok -> message_server(:socket_transfer_ok)
+                {:error, error} ->
+                  logger_debug "Error in STOR transfer: #{inspect error}"
+                  message_server({:from_pasv_socket, :socket_transfer_failed})
+              end
+              passive_listener_name = Process.get(:passive_listener_name)
+              :ranch.stop_listener(passive_listener_name)
+              logger_debug "Stopped pasv socket listener (closes pasv socket)."            
+              %{state | pasv_mode: false}
+            else
+              logger_debug "Waiting for FtpPasvSocket GenServer to come alive and available"
+              Kernel.send(self(), {:stor, to_path})
+              state
+            end
         end
-      false -> Process.get(:ftp_active_socket_pid) |> FtpActiveSocket.stor(to_path)
+      false ->
+        Process.get(:ftp_active_socket_pid) |> FtpActiveSocket.stor(to_path)
+        state
     end
-    {:noreply, state}
+    {:noreply, new_state}
   end
   
   

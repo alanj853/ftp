@@ -12,6 +12,7 @@ defmodule FtpPasvSocket do
         new_server_name = Enum.join([server_name, "_", "ftp_pasv_socket"])
         initial_state = %{ftp_data_pid: ftp_data_pid, aborted: aborted, socket: socket, server_name: new_server_name}
         pid  = :proc_lib.spawn_link(__MODULE__, :init, [ref, socket, transport, initial_state])
+        Kernel.send(ftp_data_pid, {:from_pasv_socket, {:ftp_pasv_socket_pid, pid}})
         {:ok, pid}
     end
 
@@ -31,7 +32,6 @@ defmodule FtpPasvSocket do
         ftp_data_pid = Map.get(state, :ftp_data_pid)
         Process.put(:ftp_data_pid, ftp_data_pid)
         logger_debug "Ftp Passive Starting..."
-        message_ftp_data({:ftp_pasv_socket_pid, self()}) ## tell parent my pid
         :ranch.accept_ack(ref)
         logger_debug "Got Connection on Passive socket"
     end
@@ -53,7 +53,7 @@ defmodule FtpPasvSocket do
 
     
     def stor(pid, to_path) do
-        GenServer.cast pid, {:stor, to_path}
+        GenServer.call pid, {:stor, to_path}
     end
     
     
@@ -69,6 +69,16 @@ defmodule FtpPasvSocket do
 
     
     @doc """
+    Handler that is called when a client runs the "put" command. This handler is the top level when a client wants to upload a file in "passive" mode
+    """
+    def handle_call({:stor, to_path}, _from, state = %{socket: socket}) do
+        logger_debug "Receiving file..."
+        status = receive_file(socket, to_path)
+        {:reply, status, state}
+    end
+
+    
+    @doc """
     Handler that is called when a client runs the "ls" command. This handler actually sends the data back to the client when in "active" mode has
     been selected
     """
@@ -78,16 +88,6 @@ defmodule FtpPasvSocket do
         logger_debug "Result from LIST command sent. Sent #{inspect file_info}"
         message_ftp_data(:socket_transfer_ok)
         message_ftp_data(:close_pasv_socket)
-        {:noreply, state}
-    end
-
-    
-    @doc """
-    Handler that is called when a client runs the "put" command. This handler is the top level when a client wants to upload a file in "passive" mode
-    """
-    def handle_cast({:stor, to_path}, state = %{socket: socket}) do
-        logger_debug "Receiving file..."
-        Kernel.send(self(), {:recv, socket, to_path})
         {:noreply, state}
     end
 
@@ -274,16 +274,17 @@ defmodule FtpPasvSocket do
                 File.write(to_path, new_file, [:append])
                 receive_file(socket, to_path)
                 #Kernel.send(self(), {:recv, socket, to_path})
+                :ok
             {:error, :closed} ->
                 logger_debug "Finished receiving file."
                 {:ok, info} = File.stat(to_path)
                 file_size = Map.get(info, :size)
                 logger_debug("This is size: #{inspect file_size}")
                 logger_debug "File received."
-                message_ftp_data(:socket_transfer_ok)
-                message_ftp_data(:close_pasv_socket)
+                :ok
             {:error, other_reason} ->
                 logger_debug "Error receiving file: #{other_reason}"
+                {:error, other_reason}
         end
     end
 
