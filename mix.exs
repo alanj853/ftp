@@ -16,9 +16,17 @@ defmodule Ftp.Mixfile do
   def application do
     # Specify extra applications you'll use from Erlang/Elixir
     [
-      #mod: { Ftp, [] },
+      mod: applications(Mix.env),
       extra_applications: [:logger, :ranch]
     ]
+  end
+
+  def applications(:test) do
+    { Ftp, [] }
+  end
+
+  def applications(_) do
+    []
   end
 
   # Dependencies can be Hex packages:

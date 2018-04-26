@@ -6,11 +6,11 @@ defmodule Ftp do
 
     ## Uncomment the lines below to run this as an application from running `iex -S mix`
 
-    #use Application
+    use Application
 
-    # def start(_type, _args)  do
-    #     start_server("127.0.0.1", 2121, "/home/user/var/system", "user1", "user1")
-    # end
+    def start(_type, _args)  do
+        sample()
+    end
 
 
     @doc """
@@ -207,7 +207,10 @@ defmodule Ftp do
         #start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input", limit_viewable_dirs)
         # start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input")
         opts = [limit_viewable_dirs: %{enabled: false, viewable_dirs: []}, username: "apc", password: "apc"]
-        start_server(:sample, "0.0.0.0", 2525, "/home/user", opts)
+        current_path = Path.absname("")
+        root = Path.absname("") <> "/_tmp_server"
+        File.mkdir_p! root
+        start_server(:sample, "127.0.0.1", 2525, root, opts)
     end
 
     
