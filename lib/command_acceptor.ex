@@ -23,8 +23,8 @@ defmodule CommandAcceptor do
   Handler for all TCP messages received on `socket`.
   """
   def handle_info({:tcp, socket, packet}, state = %{transport: transport, command_handler_state: command_handler_state}) do
-    IO.inspect "got #{packet}"
-    command_handler_state = CommandHandler.handle_packet(command_handler_state, packet, transport, socket)
+    {response, command_handler_state} = CommandHandler.handle_packet(command_handler_state, packet)
+    transport.send(socket, response)
     {:noreply, %{state | command_handler_state: command_handler_state}}
   end
 
@@ -42,21 +42,16 @@ defmodule CommandHandler do
   use Fsm, initial_state: :awaiting_auth
 
   defstate awaiting_auth do
-    defevent handle_packet(<<"USER ", username::binary>>, transport, socket) do
+    defevent handle_packet(<<"USER ", username::binary>>) do
       username = to_string(username) |> String.trim()
-      IO.puts "#{username}"
-      transport.send(socket, "331 Enter Password\r\n")
-      :ranch_tcp.setopts(socket, active: true)
-      next_state(:awaiting_password, username)
+      respond("331 Enter Password\r\n", :awaiting_password, username)
     end
   end
 
   defstate awaiting_password do
-    defevent handle_packet(<<"PASS ", password::binary>>, transport, socket), data: username do
-      password = to_string(password) |> String.trim()
-      IO.puts "#{username}:#{password}"
-      transport.send(socket, "230 UserAuthenticated\r\n")
-      next_state(:done)
+    defevent handle_packet(<<"PASS ", password::binary>>), data: username do
+      to_string(password) |> String.trim() |> IO.inspect
+      respond("230 User Authenticated\r\n", :done)
     end
   end
 end
