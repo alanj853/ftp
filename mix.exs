@@ -16,7 +16,7 @@ defmodule Ftp.Mixfile do
   def application do
     # Specify extra applications you'll use from Erlang/Elixir
     [
-      #mod: { Ftp, [] },
+      mod: { Main, [] },
       extra_applications: [:logger, :ranch]
     ]
   end
