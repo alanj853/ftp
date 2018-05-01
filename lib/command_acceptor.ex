@@ -2,11 +2,8 @@ defmodule CommandAcceptor do
   require Logger
   use GenServer
 
-  alias ConnectionState, as: State
-
-  def start_link(args = [_sup_pid, _ref, socket, _transport, _options]) do
-    # GenServer.start_link(__MODULE__, args, name: name(socket))
-    pid = :proc_lib.spawn_link(__MODULE__, :init, [args]) |> IO.inspect()
+  def start_link(args) do
+    pid = :proc_lib.spawn_link(__MODULE__, :init, [args])
     {:ok, pid}
   end
 
@@ -14,7 +11,7 @@ defmodule CommandAcceptor do
     {:via, Registry, {AcceptorRegistry, {__MODULE__, socket}}}
   end
 
-  def init([sup_pid, ref, socket, transport, options]) do
+  def init([sup_pid, ref, socket, transport, _options]) do
     Registry.register_name({AcceptorRegistry, {__MODULE__, socket}}, self())
     :ok = :ranch.accept_ack(ref)
     :ranch_tcp.setopts(socket, active: true)
@@ -35,7 +32,6 @@ defmodule CommandAcceptor do
   """
   def handle_info({:tcp_closed, socket}, state = %{transport: transport, sup_pid: sup_pid}) do
     transport.close(socket)
-    socket_status = Port.info(socket)
     Supervisor.stop(sup_pid)
     {:stop, :normal, state}
   end
