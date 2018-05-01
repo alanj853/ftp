@@ -14,9 +14,10 @@ defmodule ConnectionSupervisor do
       Supervisor.start_link(__MODULE__, args)
     end
   
-    def init(args) do
+    def init(args = [_ref, socket, _transport, _options]) do
       children = [
-          {CommandAcceptor, [self() | args]}
+        {ConnectionRouter, [socket]}, 
+        {CommandAcceptor, [self() | args]}
       ]
       IO.puts "I am starting"
       options = [strategy: :one_for_one]
