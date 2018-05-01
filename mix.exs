@@ -32,7 +32,8 @@ defmodule Ftp.Mixfile do
   # Type "mix help deps" for more examples and options
   defp deps do
     [
-      {:ranch, "~> 1.3.2"}
+      {:ranch, "~> 1.3.2"},
+      {:fsm, "~> 0.3.0"}
     ]
   end
 end
