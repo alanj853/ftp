@@ -22,14 +22,14 @@ defmodule Ftp do
     `root_directory`: The root directory the server will run from and display to user. Given as an absolute path in the form of a `String`.\n
     `limit_viewable_dirs`: A `Map` that contains items.\n  1. `enabled`: A `true` or `false` boolean to specify whether or not the limit_viewable_dirs option is being used.
     If this is set to `false`, then all of the directories listed as the only viewable directories will be ignored, and all directories will be viewable to the user. Default
-    is `false`.\n  2. `viewable_dirs`: A `List` that contains all of the directories you would like to be available to users. Note, path needs to be given relative to the 
-    `root_directory`, and not as absolute paths. E.g., given `root_directory` is "/var/system" and the path you want to specify is "/var/system/test", then 
+    is `false`.\n  2. `viewable_dirs`: A `List` that contains all of the directories you would like to be available to users. Note, path needs to be given relative to the
+    `root_directory`, and not as absolute paths. E.g., given `root_directory` is "/var/system" and the path you want to specify is "/var/system/test", then
     you would just specify it as "test".\n    2.1 Each entry into the `viewable_dirs` list should be a `Tuple` of the following format: {`directory`, `access`}, where `directory`
     is the directory name (relative to `root_directory` as mentioned above) given as a `String`, and `access` is an atom of either `:rw` or `:ro`.\n
     `username`: The username needed to log into the server. Is \"abc\" by default.\n
     `password`: The password needed to log into the server. Is \"abc\" by default.\n
     `log_file_directory`: The directory where the log file will be stored. Is \"/var/system/priv/log/ftp\" by default.\n
-    `debug`: The debug level for logging. Can be either 0, 1 or 2 (default). 
+    `debug`: The debug level for logging. Can be either 0, 1 or 2 (default).
             0 -> No debugging at all
             1 -> Will print messages to and from client
             2 -> Will print messages to and from client, and also all debug messages from the server backend.
@@ -45,10 +45,10 @@ defmodule Ftp do
         machine = get_machine_type()
         result = pre_run_checks(ip, port, root_directory, limit_viewable_dirs, log_file_directory, machine)
         case result do
-            :ok_to_start -> 
+            :ok_to_start ->
                 ip = process_ip(ip)
                 FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password, log_file_directory: log_file_directory, debug: debug, machine: machine, server_name: name, limit_viewable_dirs: limit_viewable_dirs, authentication_function: authentication_function})
-            error -> 
+            error ->
                 Logger.error("NOT STARTING FTP SERVER '#{name}'. #{inspect error}")
                 {:error, error}
         end
@@ -56,9 +56,9 @@ defmodule Ftp do
 
 
     @doc """
-    Function that runs checks on the arguments passed in before starting the FtpServer. Will return `:ok_to_start` if all tests pass. If not, 
+    Function that runs checks on the arguments passed in before starting the FtpServer. Will return `:ok_to_start` if all tests pass. If not,
     it will return the reason why it can't start as a `String`.
-    
+
 
     Examples
         iex> Ftp.pre_run_checks(Ftp.process_ip("127.0.0.1"), 8080, "abc", %{}, "ghi", :nmc3)
@@ -76,7 +76,7 @@ defmodule Ftp do
         iex> map =  %{enabled: true, viewable_dirs: [{"fw", :rw}, {"waveforms", :ro}]}
         iex> Ftp.pre_run_checks(Ftp.process_ip("127.0.0.1"), 8080, cd, map, cd, :nmc3)
         "Invalid viewable directories listed"
-    
+
     """
     def pre_run_checks(ip, _port, root_directory, limit_viewable_dirs, log_file_directory, machine) do
         cond do
@@ -87,7 +87,7 @@ defmodule Ftp do
             ( machine == :nmc3 ) && ( is_read_only_dir(log_file_directory) == true ) -> "#{log_file_directory} is part of the RO filesystem"
             ( Map.get(limit_viewable_dirs, :enabled) == true ) && ( valid_viewable_dirs(root_directory , Map.get(limit_viewable_dirs, :viewable_dirs)) == false ) -> "Invalid viewable directories listed"
             ( valid_ip?(ip) == false) -> "'#{ip}' is an invalid IP Address"
-            true -> :ok_to_start   
+            true -> :ok_to_start
         end
     end
 
@@ -140,7 +140,7 @@ defmodule Ftp do
             {:error, reason} ->
                 Logger.error("Error creating log file directory. Reason #{inspect reason}")
                 false
-        end 
+        end
     end
 
 
@@ -154,7 +154,7 @@ defmodule Ftp do
         end
     end
 
-    
+
     @doc """
     Function to determine if the `viewable_dirs` are valid and allowed to be used by the Ftp Server
     """
@@ -166,16 +166,16 @@ defmodule Ftp do
             case File.exists?(path) do
                 true ->
                     :ok
-                false -> 
+                false ->
                     Logger.error("Viewable dir: #{path} does not exist.")
                     Process.put(:valid_view_able_dirs, false)
                     :error
             end
         end
-        Process.get(:valid_view_able_dirs)   
+        Process.get(:valid_view_able_dirs)
     end
 
-    
+
     @doc """
     Function to determine if `path` is read-only or not. If the path is in any way invalid, it is determined as read-only, and this function
     returns `true`
@@ -188,12 +188,12 @@ defmodule Ftp do
                     :none -> true
                     _ -> false
                 end
-            {:error, _reason} -> 
-                true 
+            {:error, _reason} ->
+                true
         end
     end
 
-    
+
     @doc """
     Runs a sample of the FtpServer
     """
@@ -208,10 +208,10 @@ defmodule Ftp do
         #start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input", limit_viewable_dirs)
         # start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input")
         opts = [limit_viewable_dirs: %{enabled: false, viewable_dirs: []}, username: "apc", password: "apc"]
-        start_server(:sample, "0.0.0.0", 2525, "/workdir", opts)
+        start_server(:sample, "0.0.0.0", 2525, "./workdir", opts)
     end
 
-    
+
     @doc """
     Function to close the server with name `name`. Calling this function will completely close the all GenServers and Supervisors
     """
@@ -219,15 +219,15 @@ defmodule Ftp do
         ## Kill main supervisor
         supervisor_pid = Enum.join([name, "_ftp_supervisor"]) |> String.to_atom |> Process.whereis
         case supervisor_pid do
-            nil -> 
+            nil ->
                 Logger.error "Ftp server of name '#{name}' does not exist."
                 {:error, :not_found}
-            _ -> 
+            _ ->
                 sup = Enum.join([name, "_ftp_supervisor"]) |> String.to_atom
                 Supervisor.stop(sup)
         end
 
     end
-     
-    
+
+
 end
