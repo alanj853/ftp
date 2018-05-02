@@ -32,9 +32,8 @@ defmodule PropertyTests do
 
   def connect do
     {:ok, pid} = with {:error, _} <-:inets.start(:ftpc, [host: 'localhost', port: 2121]) do
-      {:ok, nil}
+      {:ok, :error}
     end
-    Process.sleep(100)
     pid
   end
 
@@ -65,6 +64,10 @@ defmodule PropertyTests do
 
   def next_state(%{connected: true}, _, {:call, __MODULE__, :disconnect, _}), do: initial_state()
 
+  def next_state(%{connected: false} = prev_state, :error, {:call, __MODULE__, :connect, []}) do
+    IO.puts "error setting up connections"
+    %{prev_state | inets_pid: :disconnected, connected: false}
+  end
   def next_state(%{connected: false} = prev_state, pid, {:call, __MODULE__, :connect, []}) do
     %{prev_state | inets_pid: pid, connected: true}
   end
@@ -73,18 +76,30 @@ defmodule PropertyTests do
 
   def next_state(state, _, _), do: state
 
-  def postcondition(%{connected: false}, {:call, __MODULE__, :connect, []}, nil) do
+  def postcondition(%{connected: false}, {:call, __MODULE__, :connect, []}, :error) do
+    IO.puts "inets failed to start protocol"
     false
   end
 
   def postcondition(%{connected: false}, {:call, __MODULE__, :connect, []}, pid) when is_pid(pid) do
     [{_ref, info}] = :ranch.info()
-    Keyword.get(info, :all_connections) == 1
+    if Keyword.get(info, :all_connections) == 1 do
+      true
+    else
+      IO.puts "failed connection"
+      false
+    end
   end
 
   def postcondition(%{connected: true, inets_pid: pid}, {:call, __MODULE__, :disconnect, [pid]}, :ok) do
+    Process.sleep(200)
     [{_ref, info}] = :ranch.info()
-    Keyword.get(info, :all_connections) == 0
+    if Keyword.get(info, :all_connections) == 0 do
+      true
+    else
+      IO.puts "failed disconnection"
+      false
+    end
   end
 
   def postcondition(_previous_state, _commad, _result), do: true
