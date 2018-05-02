@@ -64,9 +64,6 @@ defmodule PropertyTests do
 
   def next_state(%{connected: true}, _, {:call, __MODULE__, :disconnect, _}), do: initial_state()
 
-  #def next_state(%{connected: false} = prev_state, :error, {:call, __MODULE__, :connect, []}) do
-    #%{prev_state | inets_pid: :disconnected, connected: false}
-  #end
   def next_state(%{connected: false} = prev_state, pid, {:call, __MODULE__, :connect, []}) do
     %{prev_state | inets_pid: pid, connected: true}
   end
