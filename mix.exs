@@ -33,7 +33,8 @@ defmodule Ftp.Mixfile do
   defp deps do
     [
       {:ranch, "~> 1.3.2"},
-      {:fsm, "~> 0.3.0"}
+      {:fsm, "~> 0.3.0"},
+      {:propcheck, "~> 1.0", only: :test}
     ]
   end
 end

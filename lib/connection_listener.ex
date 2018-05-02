@@ -19,7 +19,6 @@ defmodule ConnectionListener do
         []
       )
 
-    IO.puts("Started this server #{inspect(res)}")
     {:ok, %{}}
   end
 end

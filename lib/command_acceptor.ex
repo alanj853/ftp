@@ -22,6 +22,12 @@ defmodule CommandAcceptor do
   @doc """
   Handler for all TCP messages received on `socket`.
   """
+  def handle_info({:tcp, socket, "QUIT\r\n"}, state = %{transport: transport, sup_pid: sup_pid}) do
+    transport.close(socket)
+    Supervisor.stop(sup_pid)
+    {:stop, :normal, state}
+  end
+
   def handle_info({:tcp, socket, packet}, state = %{transport: transport, command_handler_state: command_handler_state}) do
     {response, command_handler_state} = CommandHandler.handle_packet(command_handler_state, packet)
     transport.send(socket, response)
@@ -49,8 +55,7 @@ defmodule CommandHandler do
   end
 
   defstate awaiting_password do
-    defevent handle_packet(<<"PASS ", password::binary>>), data: username do
-      to_string(password) |> String.trim() |> IO.inspect
+    defevent handle_packet(<<"PASS ", _password::binary>>), data: _username do
       respond("230 User Authenticated\r\n", :done)
     end
   end

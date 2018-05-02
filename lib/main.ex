@@ -8,7 +8,6 @@ defmodule Main do
   use Application
 
   def start(_type, _args) do
-    :observer.start()
     start_link()
   end
 
