@@ -26,12 +26,15 @@ defmodule PropertyTests do
     end))
   end
 
-  defstruct file_locations: [], authenticated: false, inets_pid: :disconnected
+  defstruct connected: false, authenticated: false, inets_pid: :disconnected
 
   def initial_state, do: %__MODULE__{}
 
   def connect do
-    {:ok, pid} = with {:error, _} <-:inets.start(:ftpc, [host: 'localhost', port: 2121]), do: {:ok, nil}
+    {:ok, pid} = with {:error, _} <-:inets.start(:ftpc, [host: 'localhost', port: 2121]) do
+      {:ok, nil}
+    end
+    Process.sleep(100)
     pid
   end
 
@@ -43,54 +46,45 @@ defmodule PropertyTests do
     {:call, __MODULE__, :connect, []}
   end
 
-  def command(%{authenticated: false, inets_pid: pid}) do
+  def command(%{authenticated: false, connected: true, inets_pid: pid}) do
     oneof([
       {:call, :ftp, :user, [pid, 'user', 'pass']},
       {:call, __MODULE__, :disconnect, [pid]}
     ])
   end
 
-  def command(%{authenticated: true, inets_pid: pid}) do
+  def command(%{authenticated: true, connected: true, inets_pid: pid}) do
     {:call, __MODULE__, :disconnect, [pid]}
   end
 
-  def precondition(%{inets_pid: pid}, {:call, __MODULE__, :connect, []}) when pid != :disconnected, do: false
-  def precondition(%{inets_pid: :disconnected}, {:call, __MODULE__, :disconnect, _}), do: false
-  def precondition(%{inets_pid: :disconnected}, {:call, :ftp, _, _}), do: false
+  def precondition(%{connected: true}, {:call, __MODULE__, :connect, []}), do: false
+  def precondition(%{connected: false}, {:call, __MODULE__, :disconnect, _}), do: false
+  def precondition(%{connected: false}, {:call, :ftp, _, _}), do: false
+  def precondition(%{authenticated: true}, {:call, :ftp, :user, _}), do: false
   def precondition(_, _), do: true
 
-  def next_state(_, :ok, {:call, __MODULE__, :disconnect, _}), do: initial_state()
+  def next_state(%{connected: true}, _, {:call, __MODULE__, :disconnect, _}), do: initial_state()
 
-  def next_state(%{inets_pid: :disconnected} = prev_state, result, {:call, __MODULE__, :connect, []}) do
-    %{prev_state | inets_pid: result}
+  def next_state(%{connected: false} = prev_state, pid, {:call, __MODULE__, :connect, []}) do
+    %{prev_state | inets_pid: pid, connected: true}
   end
 
-  def next_state(%{inets_pid: pid} = prev_state, :ok, {:call, :ftp, :user, [pid, _, _]}), do: %{prev_state | authenticated: true}
+  def next_state(%{authenticated: false, inets_pid: pid} = prev_state, _, {:call, :ftp, :user, [pid, _, _]}), do: %{prev_state | authenticated: true}
 
   def next_state(state, _, _), do: state
 
-  def postcondition(%{inets_pid: :disconnected}, {:call, __MODULE__, :connect, []}, {:ok, _}) do
-    [{_ref, info}] = :ranch.info()
-    Keyword.get(info, :all_connections) == 1
-    #:inets.services_info()
-    #|> Enum.any?(fn
-      #{:ftpc, ^pid, _} ->
-        #true
-      #_ ->
-        #false
-    #end)
+  def postcondition(%{connected: false}, {:call, __MODULE__, :connect, []}, nil) do
+    false
   end
 
-  def postcondition(%{inets_pid: pid}, {:call, __MODULE__, :disconnect, [pid]}, :ok) do
+  def postcondition(%{connected: false}, {:call, __MODULE__, :connect, []}, pid) when is_pid(pid) do
+    [{_ref, info}] = :ranch.info()
+    Keyword.get(info, :all_connections) == 1
+  end
+
+  def postcondition(%{connected: true, inets_pid: pid}, {:call, __MODULE__, :disconnect, [pid]}, :ok) do
     [{_ref, info}] = :ranch.info()
     Keyword.get(info, :all_connections) == 0
-    #:inets.services_info()
-    #|> Enum.any?(fn
-      #{:ftpc, ^pid, _} ->
-        #false
-      #_ ->
-        #true
-    #end)
   end
 
   def postcondition(_previous_state, _commad, _result), do: true
