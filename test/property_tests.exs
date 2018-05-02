@@ -4,11 +4,12 @@ defmodule PropertyTests do
   use ExUnit.Case, async: false
 
   require Logger
-  @moduletag capture_log: true
+  #@moduletag capture_log: true
 
   property "ftp connections" do
-    numtests(30, trap_exit(forall cmds in commands(__MODULE__) do
+    numtests(2, trap_exit(forall cmds in commands(__MODULE__) do
       Application.ensure_all_started(:ftp)
+      IO.puts("commands: #{inspect cmds, pretty: true}")
 
       {history, state, result} = run_commands(__MODULE__, cmds)
 
@@ -31,7 +32,7 @@ defmodule PropertyTests do
   def initial_state, do: %__MODULE__{}
 
   def connect do
-    {:ok, pid} = with {:error, _} <-:inets.start(:ftpc, [host: 'localhost', port: 2121]) do
+    {:ok, pid} = with {:error, _} <-:inets.start(:ftpc, [host: '127.0.0.1', port: 2121]) do
       :inets.start(:ftpc, [host: 'localhost', port: 2121])
     end
     pid
@@ -53,13 +54,17 @@ defmodule PropertyTests do
   end
 
   def command(%{authenticated: true, connected: true, inets_pid: pid}) do
-    {:call, __MODULE__, :disconnect, [pid]}
+    oneof([
+      {:call, __MODULE__, :disconnect, [pid]}
+      #{:call, :ftp, :pwd, [pid]}
+    ])
   end
 
   def precondition(%{connected: true}, {:call, __MODULE__, :connect, []}), do: false
   def precondition(%{connected: false}, {:call, __MODULE__, :disconnect, _}), do: false
-  def precondition(%{connected: false}, {:call, :ftp, _, _}), do: false
   def precondition(%{authenticated: true}, {:call, :ftp, :user, _}), do: false
+  def precondition(%{authenticated: false}, {:call, :ftp, :pwd, _}), do: false
+  def precondition(%{connected: false}, {:call, :ftp, _, _}), do: false
   def precondition(_, _), do: true
 
   def next_state(%{connected: true}, _, {:call, __MODULE__, :disconnect, _}), do: initial_state()
@@ -78,26 +83,46 @@ defmodule PropertyTests do
   end
 
   def postcondition(%{connected: false}, {:call, __MODULE__, :connect, []}, pid) when is_pid(pid) do
-    Process.sleep(200)
-    [{_ref, info}] = :ranch.info()
-    if Keyword.get(info, :all_connections) == 1 do
-      true
-    else
-      IO.puts "failed connection"
-      false
+    task = Task.async(fn -> check_connections(1) end)
+    case Task.yield(task, 10_000) || Task.shutdown(task) do
+      {:ok, _} ->
+        true
+      nil ->
+        IO.puts "failed connection"
+        false
     end
   end
 
   def postcondition(%{connected: true, inets_pid: pid}, {:call, __MODULE__, :disconnect, [pid]}, :ok) do
-    Process.sleep(200)
-    [{_ref, info}] = :ranch.info()
-    if Keyword.get(info, :all_connections) == 0 do
-      true
-    else
-      IO.puts "failed disconnection"
-      false
+    task = Task.async(fn -> check_connections(0) end)
+    case Task.yield(task, 10_000) || Task.shutdown(task) do
+      {:ok, _} ->
+        true
+      _ ->
+        IO.puts "failed disconnection"
+        false
     end
   end
 
+  def postcondition(%{connected: true, authenticated: true}, {:call, :ftp, :pwd, _}, {:error, _} = error) do
+    IO.puts "failed to get pwd #{inspect error}"
+    false
+  end
+
+  def postcondition(%{connected: true, authenticated: true}, {:call, :ftp, :pwd, _}, {:ok, pwd}) do
+    IO.puts "got pwd #{pwd}"
+    false
+  end
+
   def postcondition(_previous_state, _commad, _result), do: true
+
+  def check_connections(count) do
+    [{_ref, info}] = :ranch.info()
+    if Keyword.get(info, :all_connections) == count do
+      true
+    else
+      Process.sleep(100)
+      check_connections(count)
+    end
+  end
 end

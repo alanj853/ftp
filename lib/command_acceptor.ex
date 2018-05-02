@@ -14,9 +14,10 @@ defmodule CommandAcceptor do
   def init([sup_pid, ref, socket, transport, _options]) do
     Registry.register_name({AcceptorRegistry, {__MODULE__, socket}}, self())
     :ok = :ranch.accept_ack(ref)
+    Process.flag(:trap_exit, true)
     :ranch_tcp.setopts(socket, keepalive: true, active: true)
     transport.send(socket, "220 Welcome to FTP Server\r\n")
-    :gen_server.enter_loop(__MODULE__, [], %{transport: transport, sup_pid: sup_pid, command_handler_state: CommandHandler.new})
+    :gen_server.enter_loop(__MODULE__, [], %{transport: transport, socket: socket, sup_pid: sup_pid, command_handler_state: CommandHandler.new})
   end
 
   @doc """
@@ -38,6 +39,12 @@ defmodule CommandAcceptor do
   Handler for when `socket` has been closed.
   """
   def handle_info({:tcp_closed, socket}, state = %{transport: transport, sup_pid: sup_pid}) do
+    transport.close(socket)
+    Supervisor.stop(sup_pid)
+    {:stop, :normal, state}
+  end
+
+  def handle_info({:EXIT, _, _}, state = %{transport: transport, socket: socket, sup_pid: sup_pid}) do
     transport.close(socket)
     Supervisor.stop(sup_pid)
     {:stop, :normal, state}
