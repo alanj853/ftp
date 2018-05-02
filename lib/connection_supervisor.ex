@@ -5,7 +5,7 @@ defmodule ConnectionSupervisor do
   def start_link(ref, socket, transport, options) do
     # pid  = :proc_lib.spawn_link(__MODULE__, :init, [ref, socket, transport, []])
     {:ok, sup_pid} = start_link([ref, socket, transport, options])
-    pid = GenServer.whereis(CommandAcceptor.name(socket))
+    pid = CommandAcceptor.pid(socket)
     {:ok, sup_pid, pid}
   end
 

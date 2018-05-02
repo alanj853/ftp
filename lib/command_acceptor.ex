@@ -2,17 +2,19 @@ defmodule CommandAcceptor do
   require Logger
   use GenServer
 
-  def start_link(args) do
+  def start_link([_sup_pid, _ref, socket, _transport, _options] = args) do
     pid = :proc_lib.spawn_link(__MODULE__, :init, [args])
+    Registry.register(AcceptorRegistry, {__MODULE__, socket}, pid)
     {:ok, pid}
   end
 
-  def name(socket) do
-    {:via, Registry, {AcceptorRegistry, {__MODULE__, socket}}}
+  def pid(socket) do
+    [{_owner, pid}] = Registry.lookup(AcceptorRegistry, {__MODULE__, socket})
+    pid
   end
 
   def init([sup_pid, ref, socket, transport, _options]) do
-    Registry.register_name({AcceptorRegistry, {__MODULE__, socket}}, self())
+    #Registry.register_name({AcceptorRegistry, {__MODULE__, socket}}, self())
     :ok = :ranch.accept_ack(ref)
     Process.flag(:trap_exit, true)
     :ranch_tcp.setopts(socket, keepalive: true, active: true)
