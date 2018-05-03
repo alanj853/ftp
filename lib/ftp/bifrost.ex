@@ -25,7 +25,7 @@ defmodule FTP.Bifrost do
   end
 
   # State, PropList (options) -> State
-  def init(options) do
+  def init(init_state, options) do
     options =
       if options[:limit_viewable_dirs] do
         permissions = struct(Ftp.Permissions, options[:limit_viewable_dirs])

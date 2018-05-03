@@ -12,7 +12,6 @@ defmodule Ftp do
         sample()
     end
 
-
     @doc """
     Function to start the server.\n
     `name`: A name to uniquely identify this instance of the server as `String`\n
@@ -46,7 +45,7 @@ defmodule Ftp do
         case result do
             :ok_to_start ->
                 ip = process_ip(ip)
-                #FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password, log_file_directory: log_file_directory, debug: debug, machine: machine, server_name: name, limit_viewable_dirs: limit_viewable_dirs, authentication_function: authentication_function})
+                FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password, log_file_directory: log_file_directory, debug: debug, machine: machine, server_name: name, limit_viewable_dirs: limit_viewable_dirs, authentication_function: authentication_function})
             error ->
                 Logger.error("NOT STARTING FTP SERVER '#{name}'. #{inspect error}")
                 {:error, error}
