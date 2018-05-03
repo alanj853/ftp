@@ -99,6 +99,7 @@ defmodule Ftp.Permissions do
         true
 
       false ->
+        IO.inspect({current_path, root_dir})
         case current_path == String.trim_leading(current_path, root_dir) do
           true -> false
           false -> true

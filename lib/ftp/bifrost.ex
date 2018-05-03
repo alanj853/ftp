@@ -1,4 +1,4 @@
-defmodule FTP.Bifrost do
+defmodule Ftp.Bifrost do
   @moduledoc """
   Bifrost callbacks
   """
@@ -12,9 +12,14 @@ defmodule FTP.Bifrost do
 
   Record.defrecord(:file_info_rec, Record.extract(:file_info, from: "include/bifrost.hrl"))
 
+  Record.defrecord(
+    :connection_state,
+    Record.extract(:connection_state, from: "include/bifrost.hrl")
+  )
+
   defmodule State do
-    defstruct root_dir: "",
-              current_directory: "",
+    defstruct root_dir: "/",
+              current_directory: "/",
               authentication_function: nil,
               expected_username: nil,
               expected_password: nil,
@@ -24,20 +29,56 @@ defmodule FTP.Bifrost do
               abort_agent: nil
   end
 
+  # State is required to be a record, with our own state nested inside.
+  # these are helpers
+
+  def unpack_state(connection_state(module_state: module_state) = conn_state) do
+    module_state
+  end
+
+  def pack_state({res, %State{} = module_state}, conn_state) do
+    {res, connection_state(conn_state, module_state: module_state)}
+  end
+
+  def pack_state(%State{} = module_state, conn_state) do
+    connection_state(conn_state, module_state: module_state)
+  end
+
+  def pack_state({:ok, send_file, module_state}, conn_state) do
+    {:ok, send_file, connection_state(conn_state, module_state: module_state)}
+  end
+
+  def pack_state(any) do
+    any
+  end
+
   # State, PropList (options) -> State
-  def init(init_state, options) do
-    options =
+  def init(connection_state() = init_state, options) do
+    init(options)
+    |> pack_state(init_state)
+  end
+
+  def init(options) do
+    permissions =
       if options[:limit_viewable_dirs] do
-        permissions = struct(Ftp.Permissions, options[:limit_viewable_dirs])
-        Keyword.put(options, :permissions, permissions)
+        struct(Ftp.Permissions, options[:limit_viewable_dirs])
       else
-        options
+        %Ftp.Permissions{enabled: false}
       end
+
+    options = Keyword.put(options, :permissions, permissions)
 
     struct(State, options)
   end
 
   # State, Username, Password -> {true OR false, State}
+  def login(connection_state() = conn_state, username, password) do
+    conn_state
+    |> unpack_state()
+    |> login(to_string(username), to_string(password))
+    |> pack_state(conn_state)
+  end
+
   def login(%State{authentication_function: authentication_function} = state, username, password)
       when is_function(authentication_function, 2) do
     case authentication_function.(username, password) do
@@ -59,11 +100,25 @@ defmodule FTP.Bifrost do
   end
 
   # State -> Path
+  def current_directory(connection_state() = conn_state) do
+    conn_state
+    |> unpack_state()
+    |> current_directory()
+    |> to_charlist()
+  end
+
   def current_directory(%State{current_directory: current_directory}) do
     current_directory
   end
 
   # State, Path -> State Change
+  def make_directory(connection_state() = conn_state, path) do
+    conn_state
+    |> unpack_state()
+    |> make_directory(to_string path)
+    |> pack_state(conn_state)
+  end
+
   def make_directory(
         %State{current_directory: current_directory, root_dir: root_dir, permissions: permissions} =
           state,
@@ -93,6 +148,13 @@ defmodule FTP.Bifrost do
   end
 
   # State, Path -> State Change
+  def change_directory(connection_state() = conn_state, path) do
+    conn_state
+    |> unpack_state()
+    |> change_directory(to_string path)
+    |> pack_state(conn_state)
+  end
+
   def change_directory(
         %State{current_directory: current_directory, root_dir: root_dir, permissions: permissions} =
           state,
@@ -127,6 +189,13 @@ defmodule FTP.Bifrost do
   end
 
   # State, Path -> [FileInfo] OR {error, State}
+  def list_files(connection_state() = conn_state, path) do
+    conn_state
+    |> unpack_state()
+    |> list_files(to_string path)
+    |> pack_state(conn_state)
+  end
+
   def list_files(
         %State{
           permissions: %{enabled: enabled} = permissions,
@@ -154,6 +223,13 @@ defmodule FTP.Bifrost do
   end
 
   # State, Path -> State Change
+  def remove_directory(connection_state() = conn_state, path) do
+    conn_state
+    |> unpack_state()
+    |> remove_directory(to_string path)
+    |> pack_state(conn_state)
+  end
+
   def remove_directory(
         %State{
           permissions: %{enabled: enabled} = permissions,
@@ -188,6 +264,13 @@ defmodule FTP.Bifrost do
   end
 
   # State, Path -> State Change
+  def remove_file(connection_state() = conn_state, path) do
+    conn_state
+    |> unpack_state()
+    |> remove_file(to_string path)
+    |> pack_state(conn_state)
+  end
+
   def remove_file(
         %State{
           permissions: %{enabled: enabled} = permissions,
@@ -222,6 +305,13 @@ defmodule FTP.Bifrost do
   end
 
   # State, File Name, (append OR write), Fun(Byte Count) -> State Change
+  def put_file(connection_state() = conn_state, filename, mode, recv_data) do
+    conn_state
+    |> unpack_state()
+    |> put_file(to_string(filename), mode, recv_data)
+    |> pack_state(conn_state)
+  end
+
   def put_file(
         %State{
           permissions: permissions,
@@ -255,6 +345,13 @@ defmodule FTP.Bifrost do
   end
 
   # State, Path -> {ok, Fun(Byte Count)} OR error
+  def get_file(connection_state() = conn_state, path) do
+    conn_state
+    |> unpack_state()
+    |> get_file(to_string path)
+    |> pack_state(conn_state)
+  end
+
   def get_file(
         %State{
           permissions: permissions,
@@ -287,6 +384,13 @@ defmodule FTP.Bifrost do
   end
 
   # State, Path -> {ok, FileInfo} OR {error, ErrorCause}
+  def file_info(connection_state() = conn_state, path) do
+    conn_state
+    |> unpack_state()
+    |> file_info(to_string path)
+    |> pack_state(conn_state)
+  end
+
   def file_info(
         %State{
           permissions: permissions,
@@ -304,7 +408,7 @@ defmodule FTP.Bifrost do
   end
 
   # State, From Path, To Path -> State Change
-  def rename_file() do
+  def rename_file(_state, _from, _to) do
     {:error, :not_supported}
   end
 
@@ -395,10 +499,11 @@ defmodule FTP.Bifrost do
 
   def set_abort(%State{abort_agent: nil} = state, false) do
     abort_agent = Agent.start_link(fn -> false end)
-    %{state| abort_agent: abort_agent}
+    %{state | abort_agent: abort_agent}
   end
 
-  def set_abort(%State{abort_agent: abort_agent} = state, abort) when is_pid(abort_agent) and is_boolean(abort) do
+  def set_abort(%State{abort_agent: abort_agent} = state, abort)
+      when is_pid(abort_agent) and is_boolean(abort) do
     Agent.update(abort_agent, fn _abort -> abort end)
     state
   end
