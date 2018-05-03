@@ -26,7 +26,8 @@ defmodule Ftp.Bifrost do
               session: nil,
               user: nil,
               permissions: nil,
-              abort_agent: nil
+              abort_agent: nil,
+              offset: 0
   end
 
   # State is required to be a record, with our own state nested inside.
@@ -102,7 +103,7 @@ defmodule Ftp.Bifrost do
       ) do
     case {username, password} do
       {expected_username, expected_password} -> {true, %{state | user: expected_username}}
-      _ ->  {false, state}
+      _ -> {false, state}
     end
   end
 
@@ -351,6 +352,39 @@ defmodule Ftp.Bifrost do
     end
   end
 
+  # State, Arg -> State Change
+  def abort(connection_state() = conn_state, arg) do
+    conn_state
+    |> unpack_state()
+    |> abort(to_string(arg))
+    |> pack_state(conn_state)
+  end
+
+  def abort(%State{} = state, _arg) do
+    {:ok, set_abort(state, true)}
+  end
+
+  # State, Arg -> State Change
+  def restart(connection_state() = conn_state, arg) do
+    conn_state
+    |> unpack_state()
+    |> restart(to_string(arg))
+    |> pack_state(conn_state)
+  end
+
+  def restart(%State{} = state, arg) do
+    arg
+    |> String.trim()
+    |> Integer.parse()
+    |> case do
+      {offset, _} ->
+        {:ok, %{state | offset: offset}}
+
+      _ ->
+        :error
+    end
+  end
+
   # State, Path -> {ok, Fun(Byte Count)} OR error
   def get_file(connection_state() = conn_state, path) do
     conn_state
@@ -385,7 +419,8 @@ defmodule Ftp.Bifrost do
 
       true ->
         {:ok, file} = :file.open(path, [:read, :binary])
-        state = set_abort(state, false)
+        :file.position(file, state.offset)
+        state = set_abort(%{state | offset: 0}, false)
         {:ok, &send_file(state, file, &1), state}
     end
   end
