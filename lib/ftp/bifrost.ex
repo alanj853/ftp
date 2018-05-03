@@ -20,7 +20,8 @@ defmodule FTP.Bifrost do
               expected_password: nil,
               session: nil,
               user: nil,
-              permissions: nil
+              permissions: nil,
+              abort_agent: nil
   end
 
   # State, PropList (options) -> State
@@ -280,8 +281,8 @@ defmodule FTP.Bifrost do
 
       true ->
         {:ok, file} = :file.open(path, [:read, :binary])
-
-        {:ok, &send_file(state, file, &1)}
+        state = set_abort(state, false)
+        {:ok, &send_file(state, file, &1), state}
     end
   end
 
@@ -381,10 +382,28 @@ defmodule FTP.Bifrost do
   end
 
   def send_file(state, file, size) do
-    case :file.read(file, size) do
-      :eof -> {:done, state}
-      {:ok, bytes} -> {:ok, bytes, &send_file(state, file, &1)}
-      {:error, _} -> {:done, state}
+    unless aborted?(state) do
+      case :file.read(file, size) do
+        :eof -> {:done, state}
+        {:ok, bytes} -> {:ok, bytes, &send_file(state, file, &1)}
+        {:error, _} -> {:done, state}
+      end
+    else
+      {:done, state}
     end
+  end
+
+  def set_abort(%State{abort_agent: nil} = state, false) do
+    abort_agent = Agent.start_link(fn -> false end)
+    %{state| abort_agent: abort_agent}
+  end
+
+  def set_abort(%State{abort_agent: abort_agent} = state, abort) when is_pid(abort_agent) and is_boolean(abort) do
+    Agent.update(abort_agent, fn _abort -> abort end)
+    state
+  end
+
+  def aborted?(%State{abort_agent: abort_agent}) when is_pid(abort_agent) do
+    Agent.get(abort_agent, fn abort -> abort end)
   end
 end

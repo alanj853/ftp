@@ -509,11 +509,16 @@ ftp_command(Mod, Socket, State, help, Arg) ->
 ftp_command(Mod, Socket, State, retr, Arg) ->
     try
         case Mod:get_file(State, Arg) of
-            {ok, Fun} ->
-                DataSocket = data_connection(Socket, State),
-                {ok, NewState} = write_fun(DataSocket, Fun),
-                respond(Socket, 226),
-                bf_close(DataSocket),
+            {ok, Fun, NewState} ->
+                % This must be async in order to abort it
+                spawn_link(
+                    fun () ->
+                        DataSocket = data_connection(Socket, State),
+                        {ok, _NewState} = write_fun(DataSocket, Fun),
+                        respond(Socket, 226),
+                        bf_close(DataSocket)
+                    end),
+
                 {ok, NewState};
             error ->
                 respond(Socket, 550),
