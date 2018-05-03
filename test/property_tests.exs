@@ -4,6 +4,7 @@ defmodule PropertyTests do
   use ExUnit.Case, async: false
 
   @default_dir "./tmp"
+  @test_port 2525
 
   require Logger
   # @moduletag capture_log: true
@@ -40,8 +41,8 @@ defmodule PropertyTests do
 
   def connect do
     {:ok, pid} =
-      with {:error, _} <- :inets.start(:ftpc, host: 'localhost', port: 2121) do
-        :inets.start(:ftpc, host: 'localhost', port: 2121)
+      with {:error, _} <- :inets.start(:ftpc, host: 'localhost', port: @test_port) do
+        :inets.start(:ftpc, host: 'localhost', port: @test_port)
       end
 
     pid
