@@ -10,7 +10,16 @@ defmodule Ftp do
   use Application
 
   def start(_type, _args) do
-    sample()
+    children = [
+        # Starts a worker by calling: CommonData.Worker.start_link(arg)
+        # {CommonData.Worker, arg},
+        Ftp.Supervisor
+      ]
+
+      # See https://hexdocs.pm/elixir/Supervisor.html
+      # for other strategies and supported options
+      opts = [strategy: :one_for_one]
+      Supervisor.start_link(children, opts)
   end
 
   @doc """
@@ -48,13 +57,11 @@ defmodule Ftp do
 
     case result do
       :ok_to_start ->
-        ip = process_ip(ip)
+        ip_address = process_ip(ip)
 
-        :bifrost.start_link(
-          Ftp.Bifrost,
-          #ip: ip,
-          port: 2525,
-          #port: port,
+        Ftp.Supervisor.start_server(name,
+          ip_address: ip_address,
+          port: port,
           root_dir: root_directory,
           username: username,
           password: password,
@@ -66,7 +73,6 @@ defmodule Ftp do
           authentication_function: authentication_function
         )
 
-      # FtpSupervisor.start_link(%{ip: ip, port: port, directory: root_directory, username: username, password: password, log_file_directory: log_file_directory, debug: debug, machine: machine, server_name: name, limit_viewable_dirs: limit_viewable_dirs, authentication_function: authentication_function})
       error ->
         Logger.error("NOT STARTING FTP SERVER '#{name}'. #{inspect(error)}")
         {:error, error}
@@ -258,17 +264,6 @@ defmodule Ftp do
   Function to close the server with name `name`. Calling this function will completely close the all GenServers and Supervisors
   """
   def close_server(name) do
-    ## Kill main supervisor
-    supervisor_pid = Enum.join([name, "_ftp_supervisor"]) |> String.to_atom() |> Process.whereis()
-
-    case supervisor_pid do
-      nil ->
-        Logger.error("Ftp server of name '#{name}' does not exist.")
-        {:error, :not_found}
-
-      _ ->
-        sup = Enum.join([name, "_ftp_supervisor"]) |> String.to_atom()
-        Supervisor.stop(sup)
-    end
+    Ftp.Supervisor.stop_server(name)
   end
 end

@@ -21,12 +21,8 @@ defmodule Ftp.Mixfile do
     ]
   end
 
-  def applications(:test) do
-    { Ftp, [] }
-  end
-
   def applications(_) do
-    []
+    { Ftp, [] }
   end
 
   # Dependencies can be Hex packages:

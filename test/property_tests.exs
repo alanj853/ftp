@@ -16,6 +16,9 @@ defmodule PropertyTests do
         forall cmds in commands(__MODULE__) do
           Application.ensure_all_started(:ftp)
 
+          # Start the Sample Server
+          Ftp.sample()
+
           {history, state, result} = run_commands(__MODULE__, cmds)
 
           Application.stop(:ftp)
