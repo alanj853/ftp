@@ -348,6 +348,15 @@ ftp_command(_, Socket, State, rein, _) ->
     {ok,
      State#connection_state{user_name=none,authenticated_state=unauthenticated}};
 
+ftp_command(Mod, Socket, State, abor, Arg) ->
+    case Mod:abort(State, Arg) of
+        {ok, NewState} ->
+            respond(Socket, 426),
+            {ok, NewState};
+        {error, _} ->
+            {ok, State}
+    end;
+
 ftp_command(Mod, Socket, State, pwd, _) ->
     respond(Socket, 257, "\"" ++ Mod:current_directory(State) ++ "\""),
     {ok, State};
@@ -512,9 +521,25 @@ ftp_command(Mod, Socket, State, retr, Arg) ->
         end
         catch
             _ ->
-                                                   respond(Socket, 550),
-                                                   {ok, State}
-                                           end;
+                respond(Socket, 550),
+                {ok, State}
+        end;
+
+ftp_command(Mod, Socket, State, rest, Arg) ->
+    try
+        case Mod:restart(State, Arg) of
+            {ok, NewState} ->
+                respond(Socket, 350, "Rest Supported. Offset set to " ++ Arg),
+                {ok, NewState};
+            error ->
+                respond(Socket, 550),
+                {ok, State}
+        end
+    catch
+        _ ->
+            respond(Socket, 550),
+            {ok, State}
+    end;
 
 ftp_command(Mod, Socket, State, mdtm, Arg) ->
     case Mod:file_info(State, Arg) of

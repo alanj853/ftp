@@ -14,6 +14,8 @@ behaviour_info(callbacks) ->
     % HelpInfo :: {Name, Description}
     [{init, 2}, % State, PropList (options) -> State
      {login, 3}, % State, Username, Password -> {true OR false, State}
+     {abort, 2}, % State, Arg -> State Change
+     {restart, 2}, % State, Arg
      {current_directory, 1}, % State -> Path
      {make_directory, 2}, % State, Path -> State Change
      {change_directory, 2}, % State, Path -> State Change
