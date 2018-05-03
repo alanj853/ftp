@@ -94,12 +94,9 @@ defmodule Ftp.Permissions do
   Function to check if `current_path` is within `root_dir`
   """
   def is_within_directory(root_dir, current_path) do
-    case current_path == root_dir do
-      true ->
+    if current_path == root_dir do
         true
-
-      false ->
-        IO.inspect({current_path, root_dir})
+    else
         case current_path == String.trim_leading(current_path, root_dir) do
           true -> false
           false -> true
@@ -111,7 +108,7 @@ defmodule Ftp.Permissions do
   Function used to determine if a user is allowed to write to the `current_path`
   """
   def allowed_to_write(
-        %__MODULE__{root_dir: root_dir, viewable_dirs: viewable_dirs, enabled: enabled},
+        %__MODULE__{root_dir: root_dir, viewable_dirs: viewable_dirs, enabled: enabled} = permissions,
         current_path
       ) do
     parent_dir = Path.dirname(current_path)
@@ -128,9 +125,7 @@ defmodule Ftp.Permissions do
   Function used to determine if a user is allowed to write a file in the the `file_path`
   """
   def allowed_to_stor(%__MODULE__{} = permissions, file_path) do
-    file_name = String.split(file_path, "/") |> List.last()
-    parent_folder = String.trim_trailing(file_path, file_name)
-    allowed_to_write(permissions, parent_folder)
+    allowed_to_write(permissions, Path.dirname(file_path))
   end
 
   @doc """

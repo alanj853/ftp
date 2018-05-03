@@ -244,8 +244,8 @@ defmodule Ftp do
     # start_server("uc1", "127.0.0.1", 2121, "/home/user/var/system/priv/input")
     opts = [
       limit_viewable_dirs: %{enabled: false, viewable_dirs: []},
-      username: "apc",
-      password: "apc"
+      username: "user",
+      password: "pass"
     ]
 
     current_path = Path.absname("")

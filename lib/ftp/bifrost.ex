@@ -59,16 +59,23 @@ defmodule Ftp.Bifrost do
   end
 
   def init(options) do
+    IO.inspect(options)
+
     permissions =
       if options[:limit_viewable_dirs] do
-        struct(Ftp.Permissions, options[:limit_viewable_dirs])
+        %{struct(Ftp.Permissions, options[:limit_viewable_dirs]) | root_dir: options[:root_dir]}
       else
-        %Ftp.Permissions{enabled: false}
+        %Ftp.Permissions{enabled: false, root_dir: options[:root_dir]}
       end
 
-    options = Keyword.put(options, :permissions, permissions)
+    options =
+      options
+      |> Keyword.put(:permissions, permissions)
+      |> Keyword.put(:expected_username, options[:username])
+      |> Keyword.put(:expected_password, options[:password])
 
     struct(State, options)
+    |> IO.inspect()
   end
 
   # State, Username, Password -> {true OR false, State}
@@ -95,7 +102,7 @@ defmodule Ftp.Bifrost do
       ) do
     case {username, password} do
       {expected_username, expected_password} -> {true, %{state | user: expected_username}}
-      _ -> {false, state}
+      _ ->  {false, state}
     end
   end
 
@@ -115,7 +122,7 @@ defmodule Ftp.Bifrost do
   def make_directory(connection_state() = conn_state, path) do
     conn_state
     |> unpack_state()
-    |> make_directory(to_string path)
+    |> make_directory(to_string(path))
     |> pack_state(conn_state)
   end
 
@@ -151,7 +158,7 @@ defmodule Ftp.Bifrost do
   def change_directory(connection_state() = conn_state, path) do
     conn_state
     |> unpack_state()
-    |> change_directory(to_string path)
+    |> change_directory(to_string(path))
     |> pack_state(conn_state)
   end
 
@@ -192,7 +199,7 @@ defmodule Ftp.Bifrost do
   def list_files(connection_state() = conn_state, path) do
     conn_state
     |> unpack_state()
-    |> list_files(to_string path)
+    |> list_files(to_string(path))
     |> pack_state(conn_state)
   end
 
@@ -226,7 +233,7 @@ defmodule Ftp.Bifrost do
   def remove_directory(connection_state() = conn_state, path) do
     conn_state
     |> unpack_state()
-    |> remove_directory(to_string path)
+    |> remove_directory(to_string(path))
     |> pack_state(conn_state)
   end
 
@@ -267,7 +274,7 @@ defmodule Ftp.Bifrost do
   def remove_file(connection_state() = conn_state, path) do
     conn_state
     |> unpack_state()
-    |> remove_file(to_string path)
+    |> remove_file(to_string(path))
     |> pack_state(conn_state)
   end
 
@@ -348,7 +355,7 @@ defmodule Ftp.Bifrost do
   def get_file(connection_state() = conn_state, path) do
     conn_state
     |> unpack_state()
-    |> get_file(to_string path)
+    |> get_file(to_string(path))
     |> pack_state(conn_state)
   end
 
@@ -387,7 +394,7 @@ defmodule Ftp.Bifrost do
   def file_info(connection_state() = conn_state, path) do
     conn_state
     |> unpack_state()
-    |> file_info(to_string path)
+    |> file_info(to_string(path))
     |> pack_state(conn_state)
   end
 

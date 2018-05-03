@@ -3,7 +3,7 @@ defmodule PropertyTests do
   use PropCheck
   use ExUnit.Case, async: false
 
-  @default_dir "./tmp"
+  @default_dir "./_tmp_server"
   @test_port 2525
 
   require Logger
