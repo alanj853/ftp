@@ -54,19 +54,23 @@ defmodule PropertyTests do
 
   def connect do
     {:ok, pid} =
-      with {:error, _} <- :inets.start(:ftpc, host: 'localhost', port: @test_port) do
-        :inets.start(:ftpc, host: 'localhost', port: @test_port)
+      with {:error, _} <- :ftp.open('localhost', port: @test_port) do
+        :ftp.open('localhost', port: @test_port)
       end
 
     pid
   end
 
   def disconnect(pid) do
-    :inets.stop(:ftpc, pid)
+    :ftp.close(pid)
   end
 
   def filename do
+    non_empty(list(union([range(97, 120), range(65, 90)])))
+  end
 
+  def file_content do
+    binary()
   end
 
   def command({:disconnected, _}) do
@@ -81,12 +85,10 @@ defmodule PropertyTests do
   end
 
   def command({:authenticated, %{pid: pid}}) do
-    content = binary()
-    filename = non_empty(list(union([range(97, 120), range(65, 90)])))
     oneof([
       {:call, __MODULE__, :disconnect, [pid]},
       {:call, :ftp, :recv_bin, [pid, @initial_filename]},
-      {:call, :ftp, :send_bin, [pid, content, filename]},
+      {:call, :ftp, :send_bin, [pid, file_content(), filename()]},
       {:call, :ftp, :pwd, [pid]}
     ])
   end
