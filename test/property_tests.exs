@@ -48,7 +48,7 @@ defmodule PropertyTests do
     )
   end
 
-  defstruct inets_pid: nil, pwd: @default_dir, files: [{@initial_file_in_ftp, @initial_file_content}]
+  defstruct pid: nil, pwd: @default_dir, files: [{@initial_file_in_ftp, @initial_file_content}]
 
   def initial_state, do: {:disconnected, %__MODULE__{}}
 
@@ -73,14 +73,14 @@ defmodule PropertyTests do
     {:call, __MODULE__, :connect, []}
   end
 
-  def command({:connected, %{inets_pid: pid}}) do
+  def command({:connected, %{pid: pid}}) do
     oneof([
       {:call, :ftp, :user, [pid, 'user', 'pass']},
       {:call, __MODULE__, :disconnect, [pid]}
     ])
   end
 
-  def command({:authenticated, %{inets_pid: pid}}) do
+  def command({:authenticated, %{pid: pid}}) do
     content = binary()
     filename = non_empty(list(union([range(97, 120), range(65, 90)])))
     oneof([
@@ -98,13 +98,13 @@ defmodule PropertyTests do
   def precondition(_, _), do: false
 
   def next_state({:disconnected, data}, pid, {:call, __MODULE__, :connect, []}) do
-    {:connected, %{data | inets_pid: pid}}
+    {:connected, %{data | pid: pid}}
   end
 
   def next_state({:connected, data}, _, {:call, __MODULE__, :disconnect, _}), do: {:disconnected, data}
 
   def next_state(
-        {:connected, %{inets_pid: pid} = data},
+        {:connected, %{pid: pid} = data},
         _,
         {:call, :ftp, :user, [pid, _, _]}
       ),
@@ -146,7 +146,7 @@ defmodule PropertyTests do
   end
 
   def postcondition({:disconnected, _}, {:call, __MODULE__, :connect, []}, pid) when is_pid(pid), do: true
-  def postcondition({:connected, %{inets_pid: pid}}, {:call, __MODULE__, :disconnect, [pid]}, :ok), do: true
+  def postcondition({:connected, %{pid: pid}}, {:call, __MODULE__, :disconnect, [pid]}, :ok), do: true
 
   def postcondition(
         {:authenticated, _},
