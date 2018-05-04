@@ -2,7 +2,7 @@ defmodule Ftp.Bifrost do
   @moduledoc """
   Bifrost callbacks
   """
-  @behavior :gen_bifrost_server
+  @behaviour :gen_bifrost_server
 
   import Ftp.Path
   import Ftp.Permissions
@@ -49,7 +49,7 @@ defmodule Ftp.Bifrost do
     {:ok, send_file, connection_state(conn_state, module_state: module_state)}
   end
 
-  def pack_state(any) do
+  def pack_state(any, _conn_state) do
     any
   end
 
@@ -60,8 +60,6 @@ defmodule Ftp.Bifrost do
   end
 
   def init(options) do
-    IO.inspect(options)
-
     permissions =
       if options[:limit_viewable_dirs] do
         %{struct(Ftp.Permissions, options[:limit_viewable_dirs]) | root_dir: options[:root_dir]}
@@ -76,7 +74,6 @@ defmodule Ftp.Bifrost do
       |> Keyword.put(:expected_password, options[:password])
 
     struct(State, options)
-    |> IO.inspect()
   end
 
   # State, Username, Password -> {true OR false, State}
@@ -409,13 +406,13 @@ defmodule Ftp.Bifrost do
 
     cond do
       is_directory == true ->
-        {:error, state}
+        :error
 
       path_exists == false ->
-        {:error, state}
+        :error
 
       have_read_access == false ->
-        {:error, state}
+        :error
 
       true ->
         {:ok, file} = :file.open(working_path, [:read, :binary])
@@ -523,6 +520,7 @@ defmodule Ftp.Bifrost do
         end
 
       :done ->
+        File.write(to_path, <<>>, [mode])
         :ok
     end
   end
