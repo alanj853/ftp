@@ -14,11 +14,10 @@ defmodule PropertyTests do
   require Logger
   @moduletag capture_log: true
 
-  setup do
+  def reset_server do
     File.rm_rf(@test_dir)
     File.mkdir_p(@test_dir)
     :ok = File.write(@initial_file, @initial_file_content)
-    :ok
   end
 
   property "ftp connections" do
@@ -26,6 +25,8 @@ defmodule PropertyTests do
       30,
       trap_exit(
         forall cmds in commands(__MODULE__) do
+          reset_server()
+
           Application.ensure_all_started(:ftp)
 
           {history, state, result} = run_commands(__MODULE__, cmds)
@@ -47,9 +48,9 @@ defmodule PropertyTests do
     )
   end
 
-  defstruct connected: false, authenticated: false, inets_pid: :disconnected, pwd: @default_dir, files: [{@initial_file_in_ftp, @initial_file_content}]
+  defstruct inets_pid: nil, pwd: @default_dir, files: [{@initial_file_in_ftp, @initial_file_content}]
 
-  def initial_state, do: %__MODULE__{}
+  def initial_state, do: {:disconnected, %__MODULE__{}}
 
   def connect do
     {:ok, pid} =
@@ -68,63 +69,69 @@ defmodule PropertyTests do
 
   end
 
-  def command(%{inets_pid: :disconnected}) do
+  def command({:disconnected, _}) do
     {:call, __MODULE__, :connect, []}
   end
 
-  def command(%{authenticated: false, connected: true, inets_pid: pid}) do
+  def command({:connected, %{inets_pid: pid}}) do
     oneof([
       {:call, :ftp, :user, [pid, 'user', 'pass']},
       {:call, __MODULE__, :disconnect, [pid]}
     ])
   end
 
-  def command(%{authenticated: true, connected: true, inets_pid: pid}) do
+  def command({:authenticated, %{inets_pid: pid}}) do
+    content = binary()
+    filename = non_empty(list(union([range(97, 120), range(65, 90)])))
     oneof([
       {:call, __MODULE__, :disconnect, [pid]},
       {:call, :ftp, :recv_bin, [pid, @initial_filename]},
-      {:call, :ftp, :send_bin, [pid, "Woo dogs", 'filename.tmp']},
+      {:call, :ftp, :send_bin, [pid, content, filename]},
       {:call, :ftp, :pwd, [pid]}
     ])
   end
 
-  def precondition(%{connected: true}, {:call, __MODULE__, :connect, []}), do: false
-  def precondition(%{connected: false}, {:call, __MODULE__, :disconnect, _}), do: false
-  def precondition(%{authenticated: authenticated}, {:call, :ftp, :user, _}), do: not authenticated
-  def precondition(%{authenticated: false}, {:call, :ftp, _, _}), do: false
-  def precondition(%{connected: false}, {:call, :ftp, _, _}), do: false
-  def precondition(_, _), do: true
+  def precondition({:disconnected, _}, {:call, __MODULE__, :connect, []}), do: true
+  def precondition({state, _}, {:call, __MODULE__, :disconnect, _}) when state in [:connected, :authenticated], do: true
+  def precondition({:connected, _}, {:call, :ftp, :user, _}), do: true
+  def precondition({:authenticated, _}, {:call, :ftp, _, _}), do: true
+  def precondition(_, _), do: false
 
-  def next_state(%{connected: true}, _, {:call, __MODULE__, :disconnect, _}), do: initial_state()
-
-  def next_state(%{connected: false} = prev_state, pid, {:call, __MODULE__, :connect, []}) do
-    %{prev_state | inets_pid: pid, connected: true}
+  def next_state({:disconnected, data}, pid, {:call, __MODULE__, :connect, []}) do
+    {:connected, %{data | inets_pid: pid}}
   end
 
+  def next_state({:connected, data}, _, {:call, __MODULE__, :disconnect, _}), do: {:disconnected, data}
+
   def next_state(
-        %{authenticated: false, inets_pid: pid} = prev_state,
+        {:connected, %{inets_pid: pid} = data},
         _,
         {:call, :ftp, :user, [pid, _, _]}
       ),
-      do: %{prev_state | authenticated: true}
+      do: {:authenticated, data}
+
+
+  def next_state({state, %{files: files} = data}, _, {:call, :ftp, :send_bin, [_, contents, filename]}) do
+    {state, %{data | files: [{filename, contents} | files]}}
+  end
 
   def next_state(state, _, _), do: state
 
-  def postcondition(%{connected: false}, {:call, __MODULE__, :connect, []}, {:error, _} = error) do
+  def postcondition({:disconnected, _}, {:call, __MODULE__, :connect, []}, {:error, _} = error) do
     IO.puts("inets failed to start protocol #{error}")
     false
   end
 
   def postcondition(
-        _,
-        {:call, :ftp, :send_bin, [_pid, _contents, _filename]},
-        {:error, _} = error
-      ) do
+    {:authenticated, _},
+    {:call, :ftp, :send_bin, [_pid, _contents, _filename]},
+    {:error, _} = error
+  ) do
     IO.puts("Failed to send file #{inspect error}")
     false
   end
 
-  def postcondition(_, {:call, :ftp, :send_bin, [pid, contents, filename]}, :ok) do
+  def postcondition({:authenticated, _}, {:call, :ftp, :send_bin, [pid, contents, filename]}, :ok) do
     case :ftp.recv_bin(pid, filename) do
       {:ok, bin} ->
         if contents != bin do
@@ -138,11 +145,11 @@ defmodule PropertyTests do
     end
   end
 
-  def postcondition(%{connected: false}, {:call, __MODULE__, :connect, []}, pid) when is_pid(pid), do: true
-  def postcondition(%{connected: true, inets_pid: pid}, {:call, __MODULE__, :disconnect, [pid]}, :ok), do: true
+  def postcondition({:disconnected, _}, {:call, __MODULE__, :connect, []}, pid) when is_pid(pid), do: true
+  def postcondition({:connected, %{inets_pid: pid}}, {:call, __MODULE__, :disconnect, [pid]}, :ok), do: true
 
   def postcondition(
-        %{connected: true, authenticated: true},
+        {:authenticated, _},
         {:call, :ftp, :pwd, _},
         {:error, _} = error
       ) do
@@ -150,16 +157,34 @@ defmodule PropertyTests do
     false
   end
 
-  def postcondition(%{connected: true, authenticated: true, pwd: pwd}, {:call, :ftp, :pwd, _}, {:ok, pwd}), do: true
-  def postcondition(%{connected: true, authenticated: true, pwd: other_pwd}, {:call, :ftp, :pwd, _}, {:ok, pwd}) when other_pwd != pwd do
+  def postcondition({:authenticated, %{pwd: pwd}}, {:call, :ftp, :pwd, _}, {:ok, pwd}), do: true
+  def postcondition({:authenticated, %{pwd: other_pwd}}, {:call, :ftp, :pwd, _}, {:ok, pwd}) when other_pwd != pwd do
     IO.puts "Expected current directory to be #{other_pwd} but got #{pwd}"
     false
   end
 
-  def postcondition(%{connected: true, authenticated: false}, {:call, :ftp, :user, _}, :ok), do: true
-  def postcondition(%{connected: true, authenticated: false}, {:call, :ftp, :user, args}, {:error, _} = error) do
+  def postcondition({:authenticated, _}, {:call, :ftp, :recv_bin, [_, filename]}, {:error, _} = error) do
+    IO.puts "Expected to recv file #{inspect filename} #{inspect error}"
+    false
+  end
+
+  def postcondition({:authenticated, files: files}, {:call, :ftp, :recv_bin, [_, filename]}, {:ok, bin}) do
+    with :no_file_matched <- Enum.find_value(files, :no_file_matched, fn
+      {filename, bin} ->
+        true
+    end) do
+      IO.puts "Could not match file #{inspect {filename, bin}}"
+      false
+    end
+  end
+
+  def postcondition({:connected, _}, {:call, :ftp, :user, _}, :ok), do: true
+  def postcondition({:connected, _}, {:call, :ftp, :user, args}, {:error, _} = error) do
     IO.puts "Failed to login as #{inspect args} error: #{error}"
   end
 
-  def postcondition(_previous_state, _commad, _result), do: false
+  def postcondition(previous_state, command, result) do
+    IO.puts "default failure #{[previous_state, command, result]} "
+    false
+  end
 end

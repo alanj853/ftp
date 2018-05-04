@@ -42,7 +42,8 @@ defmodule Ftp.Mixfile do
     [
       {:ranch, "~> 1.3.2"},
       {:fsm, "~> 0.3.0"},
-      {:propcheck, "~> 1.0", only: :test}
+      {:propcheck, "~> 1.0", only: :test},
+      {:mix_test_watch, "~> 0.5", only: :dev, runtime: false}
     ]
   end
 end
