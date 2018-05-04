@@ -95,12 +95,12 @@ defmodule Ftp.Permissions do
   """
   def is_within_directory(root_dir, current_path) do
     if current_path == root_dir do
-        true
+      true
     else
-        case current_path == String.trim_leading(current_path, root_dir) do
-          true -> false
-          false -> true
-        end
+      case current_path == String.trim_leading(current_path, root_dir) do
+        true -> false
+        false -> true
+      end
     end
   end
 
@@ -108,7 +108,8 @@ defmodule Ftp.Permissions do
   Function used to determine if a user is allowed to write to the `current_path`
   """
   def allowed_to_write(
-        %__MODULE__{root_dir: root_dir, viewable_dirs: viewable_dirs, enabled: enabled} = permissions,
+        %__MODULE__{root_dir: root_dir, viewable_dirs: viewable_dirs, enabled: enabled} =
+          permissions,
         current_path
       ) do
     parent_dir = Path.dirname(current_path)
@@ -153,7 +154,11 @@ defmodule Ftp.Permissions do
   Function to remove the hidden folders from the returned list from `File.ls` command,
   and only show the files specified in the `limit_viewable_dirs` struct.
   """
-  def remove_hidden_folders(%__MODULE__{root_dir: root_dir, viewable_dirs: viewable_dirs} = permissions, path, files) do
+  def remove_hidden_folders(
+        %__MODULE__{root_dir: root_dir, viewable_dirs: viewable_dirs} = permissions,
+        path,
+        files
+      ) do
     files =
       for file <- files do
         ## prepend the root_dir to each file
