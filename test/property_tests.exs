@@ -48,7 +48,7 @@ defmodule PropertyTests do
     )
   end
 
-  defstruct pid: nil, pwd: @default_dir, files: [{@initial_file_in_ftp, @initial_file_content}]
+  defstruct pid: nil, pwd: @default_dir, files: [{@default_dir, @initial_filename, @initial_file_content}]
 
   def initial_state, do: {:disconnected, %__MODULE__{}}
 
@@ -73,6 +73,20 @@ defmodule PropertyTests do
     binary()
   end
 
+  def get_file(%{files: files, pid: pid, pwd: pwd}) do
+    file =
+      files
+      |> Enum.filter(fn
+        {^pwd, _, _} ->
+          true
+        _ ->
+          false
+      end)
+      |> Enum.map(&elem(&1, 1))
+      |> oneof()
+    {:call, :ftp, :recv_bin, [pid, file]}
+  end
+
   def command({:disconnected, _}) do
     {:call, __MODULE__, :connect, []}
   end
@@ -84,10 +98,10 @@ defmodule PropertyTests do
     ])
   end
 
-  def command({:authenticated, %{pid: pid}}) do
+  def command({:authenticated, %{pid: pid} = data}) do
     oneof([
       {:call, __MODULE__, :disconnect, [pid]},
-      {:call, :ftp, :recv_bin, [pid, @initial_filename]},
+      get_file(data),
       {:call, :ftp, :send_bin, [pid, file_content(), filename()]},
       {:call, :ftp, :pwd, [pid]}
     ])
@@ -113,8 +127,8 @@ defmodule PropertyTests do
       do: {:authenticated, data}
 
 
-  def next_state({state, %{files: files} = data}, _, {:call, :ftp, :send_bin, [_, contents, filename]}) do
-    {state, %{data | files: [{filename, contents} | files]}}
+  def next_state({state, %{files: files, pwd: pwd} = data}, _, {:call, :ftp, :send_bin, [_, contents, filename]}) do
+    {state, %{data | files: [{pwd, filename, contents} | files]}}
   end
 
   def next_state(state, _, _), do: state
@@ -133,8 +147,8 @@ defmodule PropertyTests do
     false
   end
 
-  def postcondition({:authenticated, _}, {:call, :ftp, :send_bin, [pid, contents, filename]}, :ok) do
-    case :ftp.recv_bin(pid, filename) do
+  def postcondition({:authenticated, %{pwd: pwd}}, {:call, :ftp, :send_bin, [pid, contents, filename]}, :ok) do
+    case :ftp.recv_bin(pid, pwd ++ filename) do
       {:ok, bin} ->
         if contents != bin do
           IO.puts "expected #{inspect filename} to have contents #{inspect bin}, but got #{inspect contents}"
@@ -142,7 +156,7 @@ defmodule PropertyTests do
           true
         end
       error ->
-        IO.puts "Failed to recv_bin #{inspect error} pid: #{inspect pid} file: #{inspect filename}"
+        IO.puts "Sent, but can't recv_bin #{inspect error} pid: #{inspect pid} file: #{inspect filename}"
         false
     end
   end
@@ -170,10 +184,10 @@ defmodule PropertyTests do
     false
   end
 
-  def postcondition({:authenticated, %{files: files, pwd: pwd}}, {:call, :ftp, :recv_bin, [_, filename]}, {:ok, bin}) do
+  def postcondition({:authenticated, %{files: files, pwd: pwd}}, {:call, :ftp, :recv_bin, [_, download_name]}, {:ok, bin}) do
     found = Enum.any?(files, fn
-      {path, ^bin} ->
-        path == pwd ++ filename
+      {dir, filename, ^bin} ->
+        dir ++ filename == pwd ++ download_name
       _ ->
         false
     end)
