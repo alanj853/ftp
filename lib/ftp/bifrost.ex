@@ -418,7 +418,7 @@ defmodule Ftp.Bifrost do
         {:error, state}
 
       true ->
-        {:ok, file} = :file.open(path, [:read, :binary])
+        {:ok, file} = :file.open(working_path, [:read, :binary])
         :file.position(file, state.offset)
         state = set_abort(%{state | offset: 0}, false)
         {:ok, &send_file(state, file, &1), state}
@@ -540,7 +540,7 @@ defmodule Ftp.Bifrost do
   end
 
   def set_abort(%State{abort_agent: nil} = state, false) do
-    abort_agent = Agent.start_link(fn -> false end)
+    {:ok, abort_agent} = Agent.start_link(fn -> false end)
     %{state | abort_agent: abort_agent}
   end
 
