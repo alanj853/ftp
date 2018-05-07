@@ -21,7 +21,7 @@ defmodule PropertyTests do
 
   property "ftp connections" do
     numtests(
-      2000,
+      500,
       trap_exit(
         forall cmds in commands(__MODULE__) do
           reset_server()
@@ -47,7 +47,10 @@ defmodule PropertyTests do
     )
   end
 
-  defstruct pid: nil, pwd: @default_dir, files: [{@default_dir, @initial_filename, @initial_file_content}], dirs: []
+  defstruct pid: nil,
+            pwd: @default_dir,
+            files: [{@default_dir, @initial_filename, @initial_file_content}],
+            dirs: []
 
   def initial_state, do: {:disconnected, %__MODULE__{}}
 
@@ -65,11 +68,13 @@ defmodule PropertyTests do
   end
 
   def filename do
-    non_empty(list(union([range(97, 120), range(65, 90)])))
+    # non_empty(list(union([range(97, 120), range(65, 90)])))
+    oneof(['one.txt', 'two.jpg', 'three.bin', 'four.so', 'five.png'])
   end
 
   def dirname do
-    non_empty(list(union([range(97, 120), range(65, 90)])))
+    # non_empty(list(union([range(97, 120), range(65, 90)])))
+    oneof(['dirone', 'dirtwo', 'dirthree', 'dirfour'])
   end
 
   def file_content do
@@ -82,7 +87,7 @@ defmodule PropertyTests do
 
   def a_file_relative_pwd(%{files: files, pwd: pwd}) do
     files
-    |> Enum.map(fn({path, filename, _})->
+    |> Enum.map(fn {path, filename, _} ->
       Path.join([to_string(path), to_string(filename)])
       |> Path.relative_to(pwd)
       |> to_charlist()
@@ -103,20 +108,38 @@ defmodule PropertyTests do
 
   def command({:authenticated, %{pid: pid} = data}) do
     file_in_pwd = a_file_relative_pwd(data)
+
     oneof([
       {:call, __MODULE__, :disconnect, [pid]},
       {:call, :ftp, :recv_bin, [pid, file_in_pwd]},
       {:call, :ftp, :delete, [pid, file_in_pwd]},
       {:call, :ftp, :send_bin, [pid, file_content(), filename()]},
-      #{:call, :ftp, :mkdir, [pid, dirname()]},
+      {:call, :ftp, :mkdir, [pid, dirname()]},
       {:call, :ftp, :pwd, [pid]}
     ])
   end
 
   def precondition({:disconnected, _}, {:call, __MODULE__, :connect, []}), do: true
-  def precondition({state, _}, {:call, __MODULE__, :disconnect, _}) when state in [:connected, :authenticated], do: true
+
+  def precondition({state, _}, {:call, __MODULE__, :disconnect, _})
+      when state in [:connected, :authenticated],
+      do: true
+
   def precondition({:connected, _}, {:call, :ftp, :user, _}), do: true
-  def precondition({:authenticated, %{files: []}}, {:call, :ftp, command, _}) when command in [:recv_bin, :delete], do: false
+
+  def precondition({:authenticated, %{files: []}}, {:call, :ftp, command, _})
+      when command in [:recv_bin, :delete],
+      do: false
+
+  def precondition(
+        {:authenticated, %{dirs: dirs, pwd: pwd}},
+        {:call, :ftp, :mkdir, [_, directory]}
+      ),
+      do:
+        Enum.any?(dirs, fn dir ->
+          to_string(dir) == Path.join([to_string(pwd), to_string(directory)])
+        end)
+
   def precondition({:authenticated, _}, {:call, :ftp, _, _}), do: true
   def precondition(_, _), do: false
 
@@ -133,23 +156,31 @@ defmodule PropertyTests do
       ),
       do: {:authenticated, data}
 
-
-  def next_state({state, %{files: files, pwd: pwd} = data}, _, {:call, :ftp, :send_bin, [_, contents, filename]}) do
+  def next_state(
+        {state, %{files: files, pwd: pwd} = data},
+        _,
+        {:call, :ftp, :send_bin, [_, contents, filename]}
+      ) do
     {state, %{data | files: [{pwd, filename, contents} | files]}}
   end
 
   def next_state({state, %{dirs: dirs, pwd: pwd} = data}, _, {:call, :ftp, :mkdir, [_, dirname]}) do
-    IO.puts "What the heck is your name"
     {state, %{data | dirs: [pwd ++ dirname | dirs]}}
   end
 
-  def next_state({state, %{files: files, pwd: pwd} = data}, _, {:call, :ftp, :delete, [_, filename]}) do
+  def next_state(
+        {state, %{files: files, pwd: pwd} = data},
+        _,
+        {:call, :ftp, :delete, [_, filename]}
+      ) do
     new_files =
       files
-      |> Enum.reject(fn({dir, name, _})->
-        Path.join([to_string(dir), to_string(name)]) == Path.join([to_string(pwd), to_string(filename)])
+      |> Enum.reject(fn {dir, name, _} ->
+        Path.join([to_string(dir), to_string(name)]) ==
+          Path.join([to_string(pwd), to_string(filename)])
       end)
-    {state, %{data | files: new_files }}
+
+    {state, %{data | files: new_files}}
   end
 
   def next_state(state, _, _), do: state
@@ -160,59 +191,78 @@ defmodule PropertyTests do
   end
 
   def postcondition(
-    {:authenticated, _},
-    {:call, :ftp, :mkdir, [_pid, _dirname]},
-    {:error, _} = error
-  ) do
-    IO.puts("Failed to make dir #{inspect error}")
+        {:authenticated, _},
+        {:call, :ftp, :mkdir, [_pid, _dirname]},
+        {:error, _} = error
+      ) do
+    IO.puts("Failed to make dir #{inspect(error)}")
     false
   end
 
-  def postcondition({:authenticated, %{pwd: pwd}}, {:call, :ftp, :mkdir, [pid, dirname]}, :ok) do
+  def postcondition({:authenticated, _}, {:call, :ftp, :mkdir, [pid, dirname]}, :ok) do
     case :ftp.ls(pid) do
       {:ok, listing} ->
-        if  Enum.any?(listing, fn(dir)-> pwd ++ dir == dirname end) do
+        if listing |> to_string() |> String.contains?(to_string(dirname)) do
           true
         else
-          IO.puts "expected #{inspect dirname} in #{inspect listing}"
+          IO.puts("expected #{inspect(dirname)} in #{inspect(listing)}")
           false
         end
+
       error ->
-        IO.puts "Sent, but can't recv_bin #{inspect error} pid: #{inspect pid} dir: #{inspect dirname}"
+        IO.puts(
+          "Sent, but can't ls #{inspect(error)} pid: #{inspect(pid)} dir: #{inspect(dirname)}"
+        )
+
         false
     end
   end
 
   def postcondition(
-    {:authenticated, _},
-    {:call, :ftp, :send_bin, [_pid, _contents, _filename]},
-    {:error, _} = error
-  ) do
-    IO.puts("Failed to send file #{inspect error}")
+        {:authenticated, _},
+        {:call, :ftp, :send_bin, [_pid, _contents, _filename]},
+        {:error, _} = error
+      ) do
+    IO.puts("Failed to send file #{inspect(error)}")
     false
   end
 
-  def postcondition({:authenticated, %{pwd: pwd}}, {:call, :ftp, :send_bin, [pid, contents, filename]}, :ok) do
+  def postcondition(
+        {:authenticated, %{pwd: pwd}},
+        {:call, :ftp, :send_bin, [pid, contents, filename]},
+        :ok
+      ) do
     case :ftp.recv_bin(pid, pwd ++ filename) do
       {:ok, bin} ->
         if contents != bin do
-          IO.puts "expected #{inspect filename} to have contents #{inspect bin}, but got #{inspect contents}"
+          IO.puts(
+            "expected #{inspect(filename)} to have contents #{inspect(bin)}, but got #{
+              inspect(contents)
+            }"
+          )
+
           false
         else
           true
         end
+
       error ->
-        IO.puts "Sent, but can't recv_bin #{inspect error} pid: #{inspect pid} file: #{inspect filename}"
+        IO.puts(
+          "Sent, but can't recv_bin #{inspect(error)} pid: #{inspect(pid)} file: #{
+            inspect(filename)
+          }"
+        )
+
         false
     end
   end
 
   def postcondition(
-    {:authenticated, _},
-    {:call, :ftp, :delete, [_pid, _filename]},
-    {:error, _} = error
-  ) do
-    IO.puts("Failed to delete file #{inspect error}")
+        {:authenticated, _},
+        {:call, :ftp, :delete, [_pid, _filename]},
+        {:error, _} = error
+      ) do
+    IO.puts("Failed to delete file #{inspect(error)}")
     false
   end
 
@@ -220,13 +270,21 @@ defmodule PropertyTests do
     case :ftp.recv_bin(pid, pwd ++ filename) do
       {:error, :epath} ->
         true
+
       response ->
-        IO.puts "Deleted but fetch reesponse was #{inspect response} pid: #{inspect pid} file: #{inspect filename}"
+        IO.puts(
+          "Deleted but fetch reesponse was #{inspect(response)} pid: #{inspect(pid)} file: #{
+            inspect(filename)
+          }"
+        )
+
         false
     end
   end
 
-  def postcondition({:disconnected, _}, {:call, __MODULE__, :connect, []}, pid) when is_pid(pid), do: true
+  def postcondition({:disconnected, _}, {:call, __MODULE__, :connect, []}, pid) when is_pid(pid),
+    do: true
+
   def postcondition({_, %{pid: pid}}, {:call, __MODULE__, :disconnect, [pid]}, :ok), do: true
 
   def postcondition(
@@ -239,38 +297,51 @@ defmodule PropertyTests do
   end
 
   def postcondition({:authenticated, %{pwd: pwd}}, {:call, :ftp, :pwd, _}, {:ok, pwd}), do: true
-  def postcondition({:authenticated, %{pwd: other_pwd}}, {:call, :ftp, :pwd, _}, {:ok, pwd}) when other_pwd != pwd do
-    IO.puts "Expected current directory to be #{other_pwd} but got #{pwd}"
+
+  def postcondition({:authenticated, %{pwd: other_pwd}}, {:call, :ftp, :pwd, _}, {:ok, pwd})
+      when other_pwd != pwd do
+    IO.puts("Expected current directory to be #{other_pwd} but got #{pwd}")
     false
   end
 
-  def postcondition({:authenticated, _}, {:call, :ftp, :recv_bin, [_, filename]}, {:error, _} = error) do
-    IO.puts "Expected to recv file #{inspect filename} #{inspect error}"
+  def postcondition(
+        {:authenticated, _},
+        {:call, :ftp, :recv_bin, [_, filename]},
+        {:error, _} = error
+      ) do
+    IO.puts("Expected to recv file #{inspect(filename)} #{inspect(error)}")
     false
   end
 
-  def postcondition({:authenticated, %{files: files, pwd: pwd}}, {:call, :ftp, :recv_bin, [_, download_name]}, {:ok, bin}) do
-    found = Enum.any?(files, fn
-      {dir, filename, ^bin} ->
-        dir ++ filename == pwd ++ download_name
-      _ ->
-        false
-    end)
+  def postcondition(
+        {:authenticated, %{files: files, pwd: pwd}},
+        {:call, :ftp, :recv_bin, [_, download_name]},
+        {:ok, bin}
+      ) do
+    found =
+      Enum.any?(files, fn
+        {dir, filename, ^bin} ->
+          dir ++ filename == pwd ++ download_name
+
+        _ ->
+          false
+      end)
 
     if not found do
-      IO.puts "Could not match file #{inspect {download_name, bin}}"
+      IO.puts("Could not match file #{inspect({download_name, bin})}")
     end
 
     found
   end
 
   def postcondition({:connected, _}, {:call, :ftp, :user, _}, :ok), do: true
+
   def postcondition({:connected, _}, {:call, :ftp, :user, args}, {:error, _} = error) do
-    IO.puts "Failed to login as #{inspect args} error: #{error}"
+    IO.puts("Failed to login as #{inspect(args)} error: #{error}")
   end
 
   def postcondition(previous_state, command, result) do
-    IO.puts "default failure #{inspect [previous_state, command, result]} "
+    IO.puts("default failure #{inspect([previous_state, command, result])} ")
     false
   end
 end
