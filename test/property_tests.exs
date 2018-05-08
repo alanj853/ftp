@@ -21,7 +21,7 @@ defmodule PropertyTests do
 
   property "ftp connections" do
     numtests(
-      500,
+      200,
       trap_exit(
         forall cmds in commands(__MODULE__) do
           reset_server()
@@ -71,21 +71,23 @@ defmodule PropertyTests do
   end
 
   def filename do
-    # non_empty(list(union([range(97, 120), range(65, 90)])))
     oneof(['one.txt', 'two.jpg', 'three.bin', 'four.so', 'five.png'])
   end
 
   def dirname do
-    # non_empty(list(union([range(97, 120), range(65, 90)])))
     oneof(['dirone', 'dirtwo', 'dirthree', 'dirfour'])
   end
 
   def file_content do
-    binary()
+    binary(10)
+  end
+
+  def receive_with_offset(pid, {filename, offset}) do
+    :ftp.recv_bin(pid, filename, offset)
   end
 
   def a_file_relative_pwd(%{files: []}) do
-    :no_file
+    :no_files
   end
 
   def a_file_relative_pwd(%{files: files, pwd: pwd}) do
@@ -95,6 +97,22 @@ defmodule PropertyTests do
       |> Path.relative_to(pwd)
       |> to_charlist()
     end)
+    |> oneof()
+  end
+
+  def a_file_with_offset(%{files: []}) do
+    :no_files
+  end
+
+  def a_file_with_offset(%{files: files, pwd: pwd}) do
+    for {path, filename, content} <- files,
+        size <- Range.new(0, byte_size(content)),
+        file =
+          Path.join([to_string(path), to_string(filename)])
+          |> Path.relative_to(pwd)
+          |> to_charlist() do
+      {file, size}
+    end
     |> oneof()
   end
 
@@ -118,7 +136,8 @@ defmodule PropertyTests do
       {:call, :ftp, :delete, [pid, file_in_pwd]},
       {:call, :ftp, :send_bin, [pid, file_content(), filename()]},
       {:call, :ftp, :mkdir, [pid, dirname()]},
-      {:call, :ftp, :pwd, [pid]}
+      {:call, :ftp, :pwd, [pid]},
+      {:call, __MODULE__, :receive_with_offset, [pid, a_file_with_offset(data)]}
     ])
   end
 
@@ -137,11 +156,23 @@ defmodule PropertyTests do
   def precondition(
         {:authenticated, %{dirs: dirs, pwd: pwd}},
         {:call, :ftp, :mkdir, [_, directory]}
-      ),
-      do:
-        Enum.any?(dirs, fn dir ->
-          to_string(dir) == Path.join([to_string(pwd), to_string(directory)])
-        end)
+      ) do
+    Enum.any?(dirs, fn dir ->
+      to_string(dir) == Path.join([to_string(pwd), to_string(directory)])
+    end)
+  end
+
+  def precondition(
+        {:authenticated, %{files: []}},
+        {:call, __MODULE__, :receive_with_offset, [_, _]}
+  ) do
+    false
+  end
+
+  def precondition(
+        {:authenticated, _},
+        {:call, __MODULE__, :receive_with_offset, [_, _]}
+  ), do: true
 
   def precondition({:authenticated, _}, {:call, :ftp, _, _}), do: true
   def precondition(_, _), do: false
@@ -335,6 +366,47 @@ defmodule PropertyTests do
     end
 
     found
+  end
+
+  def postcondition(
+        {:authenticated, _},
+        {:call, __MODULE__, :receive_with_offset, [_, {filename, offset}]},
+        {:error, _} = error
+      ) do
+    IO.puts("Expected to recv with offset #{offset} file #{inspect(filename)} #{inspect(error)}")
+    false
+  end
+
+  def postcondition(
+        {:authenticated, %{files: files, pwd: pwd}},
+        {:call, __MODULE__, :receive_with_offset, [_, {download_name, offset}]},
+        {:ok, bin}
+      ) do
+    found =
+      Enum.find(files, :not_found, fn {dir, filename, _} ->
+        dir ++ filename == pwd ++ download_name
+      end)
+
+    case found do
+      {_, ^download_name, content} ->
+        {_, expected_content} = String.split_at(content, offset)
+
+        if expected_content == bin do
+          true
+        else
+          IO.puts(
+            "Could not match content offset #{offset} received #{inspect(bin, pretty: true)} with #{
+              inspect(expected_content, pretty: true)
+            } original content #{inspect(content, pretty: true)}"
+          )
+
+          false
+        end
+
+      result ->
+        IO.puts("Could not match file #{inspect({download_name, bin})} got #{result}")
+        false
+    end
   end
 
   def postcondition({:connected, _}, {:call, :ftp, :user, _}, :ok), do: true

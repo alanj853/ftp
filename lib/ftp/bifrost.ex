@@ -370,13 +370,12 @@ defmodule Ftp.Bifrost do
   end
 
   def restart(%State{} = state, arg) do
-    arg
+    arg |> IO.inspect
     |> String.trim()
     |> Integer.parse()
     |> case do
       {offset, _} ->
         {:ok, %{state | offset: offset}}
-
       _ ->
         :error
     end
@@ -502,7 +501,7 @@ defmodule Ftp.Bifrost do
           mtime: mtime
         )
 
-      {:error, _reason} ->
+      {:error, _reason} = error ->
         nil
     end
   end
