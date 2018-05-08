@@ -415,11 +415,7 @@ defmodule Ftp.Bifrost do
 
       true ->
         {:ok, file} = :file.open(working_path, [:read, :binary])
-        if state.offset > 0 do
-          :file.position(file, state.offset)
-        else
-          :file.position(file, state.offset)
-        end
+        :file.position(file, state.offset)
         state = set_abort(%{state | offset: 0}, false)
         {:ok, &send_file(state, file, &1), state}
     end
