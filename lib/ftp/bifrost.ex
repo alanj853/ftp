@@ -33,7 +33,7 @@ defmodule Ftp.Bifrost do
   # State is required to be a record, with our own state nested inside.
   # these are helpers
 
-  def unpack_state(connection_state(module_state: module_state) = conn_state) do
+  def unpack_state(connection_state(module_state: module_state)) do
     module_state
   end
 
@@ -99,7 +99,7 @@ defmodule Ftp.Bifrost do
         password
       ) do
     case {username, password} do
-      {expected_username, expected_password} -> {true, %{state | user: expected_username}}
+      {^expected_username, ^expected_password} -> {true, %{state | user: expected_username}}
       _ -> {false, state}
     end
   end
@@ -146,7 +146,7 @@ defmodule Ftp.Bifrost do
           :ok ->
             {:ok, state}
 
-          {:error, error} ->
+          {:error, _} ->
             {:error, state}
         end
     end
@@ -189,7 +189,7 @@ defmodule Ftp.Bifrost do
         {:error, state}
 
       true ->
-        {:ok, %{state | current_directory: current_directory}}
+        {:ok, %{state | current_directory: new_current_directory}}
     end
   end
 
@@ -237,7 +237,7 @@ defmodule Ftp.Bifrost do
 
   def remove_directory(
         %State{
-          permissions: %{enabled: enabled} = permissions,
+          permissions: permissions,
           root_dir: root_dir,
           current_directory: current_directory
         } = state,
@@ -278,7 +278,7 @@ defmodule Ftp.Bifrost do
 
   def remove_file(
         %State{
-          permissions: %{enabled: enabled} = permissions,
+          permissions: permissions,
           root_dir: root_dir,
           current_directory: current_directory
         } = state,
@@ -370,7 +370,7 @@ defmodule Ftp.Bifrost do
   end
 
   def restart(%State{} = state, arg) do
-    arg |> IO.inspect
+    arg
     |> String.trim()
     |> Integer.parse()
     |> case do
@@ -434,7 +434,7 @@ defmodule Ftp.Bifrost do
           permissions: permissions,
           root_dir: root_dir,
           current_directory: current_directory
-        } = state,
+        },
         path
       ) do
     working_path = determine_path(root_dir, current_directory, path)
@@ -471,7 +471,7 @@ defmodule Ftp.Bifrost do
 
   def encode_file_info(permissions, file) do
     case File.stat(file) do
-      {:ok, %{type: type, mtime: mtime, access: access, size: size}} ->
+      {:ok, %{type: type, mtime: mtime, access: _, size: size}} ->
         type =
           case type do
             :directory -> :dir
@@ -501,20 +501,20 @@ defmodule Ftp.Bifrost do
           mtime: mtime
         )
 
-      {:error, _reason} = error ->
+      {:error, _reason} ->
         nil
     end
   end
 
   def receive_file(to_path, mode, recv_data) do
     case recv_data.() do
-      {:ok, bytes, read_count} ->
+      {:ok, bytes, _} ->
         case File.write(to_path, bytes, [mode]) do
           :ok ->
             # Always append after 1st write
             receive_file(to_path, :append, recv_data)
 
-          {:error, reason} ->
+          {:error, _} ->
             :error
         end
 

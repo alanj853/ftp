@@ -19,12 +19,10 @@ defmodule Ftp.Supervisor do
   end
 
   def start_server(name, options) do
-    IO.inspect options
     DynamicSupervisor.start_child(@server_name, %{
       id: name,
       start: {:bifrost, :start_link, [Ftp.Bifrost, options]}
     })
-    |> IO.inspect()
   end
 
   def stop_server(name) when is_binary(name) do
