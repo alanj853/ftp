@@ -450,7 +450,8 @@ recv_bin(Pid, RemoteFile) ->
     {'ok', Bin :: binary()} |
 	{'error', Reason :: restriction_reason() | common_reason()}.
 recv_bin(Pid, RemoteFile, Offset) ->
-    call(Pid, {recv_bin, RemoteFile, Offset}, bin).
+    call(Pid, {recv_bin, RemoteFile, Offset}, bin),
+    call(Pid, {recv_bin, RemoteFile}, bin).
 
 
 %%--------------------------------------------------------------------------
@@ -1867,8 +1868,6 @@ handle_caller(#state{caller = {dir, Dir, Len}} = State) ->
 
 handle_caller(#state{caller = {recv_bin, RemoteFile, Offset}} = State) ->
     send_ctrl_message(State, mk_cmd("REST ~.10B~n", [Offset])),
-    activate_ctrl_connection(State),
-    send_ctrl_message(State, mk_cmd("RETR ~s", [RemoteFile])),
     activate_ctrl_connection(State),
     {noreply, State#state{caller = recv_bin}};
 
