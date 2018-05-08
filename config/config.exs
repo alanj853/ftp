@@ -18,7 +18,7 @@ use Mix.Config
 #
 # Or configure a 3rd-party app:
 #
-#config :logger, level: :error
+config :logger, level: :error
 #
 
 # It is also possible to import configuration files, relative to this
@@ -29,9 +29,8 @@ use Mix.Config
 #
 #     import_config "#{Mix.env}.exs"
 
-
 config :ftp,
-    username: "user",
-    password: "password1",
-    ro_dirs: ["/home/alan/Development"],
-    rw_dirs: ["/home/alan/Development/ftp"]
+  username: "user",
+  password: "password1",
+  ro_dirs: ["/home/alan/Development"],
+  rw_dirs: ["/home/alan/Development/ftp"]

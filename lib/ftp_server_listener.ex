@@ -4,14 +4,14 @@ defmodule FtpServerListener do
     """
     use GenServer
 
-    
+
     def start_link(args) do
         server_name = Map.get(args, :server_name)
         name = Enum.join([server_name, "_ftp_server_listener"]) |> String.to_atom
         GenServer.start_link(__MODULE__, args, name: name)
     end
 
-    
+
     def init(state) do
         Process.flag(:trap_exit, true)
         ip = Map.get(state, :ip)

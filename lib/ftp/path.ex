@@ -5,10 +5,7 @@ defmodule Ftp.Path do
   require Logger
 
   def is_absolute_path(path) do
-    case path == String.trim_leading(path, "/") do
-      true -> false
-      false -> true
-    end
+    path == String.trim_leading(path, "/")
   end
 
   @doc """

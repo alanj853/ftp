@@ -2,7 +2,7 @@ defmodule Ftp.Bifrost do
   @moduledoc """
   Bifrost callbacks
   """
-  @behavior :gen_bifrost_server
+  @behaviour :gen_bifrost_server
 
   import Ftp.Path
   import Ftp.Permissions
@@ -10,7 +10,7 @@ defmodule Ftp.Bifrost do
   require Record
   require Logger
 
-  Record.defrecord(:file_info_rec, Record.extract(:file_info, from: "include/bifrost.hrl"))
+  Record.defrecord(:file_info, Record.extract(:file_info, from: "include/bifrost.hrl"))
 
   Record.defrecord(
     :connection_state,
@@ -49,7 +49,7 @@ defmodule Ftp.Bifrost do
     {:ok, send_file, connection_state(conn_state, module_state: module_state)}
   end
 
-  def pack_state(any) do
+  def pack_state(any, _conn_state) do
     any
   end
 
@@ -60,8 +60,6 @@ defmodule Ftp.Bifrost do
   end
 
   def init(options) do
-    IO.inspect(options)
-
     permissions =
       if options[:limit_viewable_dirs] do
         %{struct(Ftp.Permissions, options[:limit_viewable_dirs]) | root_dir: options[:root_dir]}
@@ -76,7 +74,6 @@ defmodule Ftp.Bifrost do
       |> Keyword.put(:expected_password, options[:password])
 
     struct(State, options)
-    |> IO.inspect()
   end
 
   # State, Username, Password -> {true OR false, State}
@@ -224,7 +221,7 @@ defmodule Ftp.Bifrost do
     if files == [] do
       {:error, state}
     else
-      for file <- files, info = encode_file_info(permissions, file), info != nil do
+      for file <- files, info = encode_file_info(permissions, file |> Path.absname(working_path)), info != nil do
         info
       end
     end
@@ -409,16 +406,16 @@ defmodule Ftp.Bifrost do
 
     cond do
       is_directory == true ->
-        {:error, state}
+        :error
 
       path_exists == false ->
-        {:error, state}
+        :error
 
       have_read_access == false ->
-        {:error, state}
+        :error
 
       true ->
-        {:ok, file} = :file.open(path, [:read, :binary])
+        {:ok, file} = :file.open(working_path, [:read, :binary])
         :file.position(file, state.offset)
         state = set_abort(%{state | offset: 0}, false)
         {:ok, &send_file(state, file, &1), state}
@@ -426,14 +423,14 @@ defmodule Ftp.Bifrost do
   end
 
   # State, Path -> {ok, FileInfo} OR {error, ErrorCause}
-  def file_info(connection_state() = conn_state, path) do
+  def file_information(connection_state() = conn_state, path) do
     conn_state
     |> unpack_state()
-    |> file_info(to_string(path))
+    |> file_information(to_string(path))
     |> pack_state(conn_state)
   end
 
-  def file_info(
+  def file_information(
         %State{
           permissions: permissions,
           root_dir: root_dir,
@@ -482,7 +479,7 @@ defmodule Ftp.Bifrost do
             :regular -> :file
           end
 
-        name = Path.basename(file)
+          name = Path.basename(file) |> to_charlist()
 
         mode =
           cond do
@@ -495,7 +492,7 @@ defmodule Ftp.Bifrost do
               0o400
           end
 
-        file_info_rec(
+        file_info(
           type: type,
           name: name,
           mode: mode,
@@ -523,6 +520,7 @@ defmodule Ftp.Bifrost do
         end
 
       :done ->
+        File.write(to_path, <<>>, [mode])
         :ok
     end
   end
@@ -540,7 +538,7 @@ defmodule Ftp.Bifrost do
   end
 
   def set_abort(%State{abort_agent: nil} = state, false) do
-    abort_agent = Agent.start_link(fn -> false end)
+    {:ok, abort_agent} = Agent.start_link(fn -> false end)
     %{state | abort_agent: abort_agent}
   end
 
