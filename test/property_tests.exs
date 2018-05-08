@@ -395,7 +395,7 @@ defmodule PropertyTests do
           true
         else
           IO.puts(
-            "Could not match content offset #{offset} received #{inspect(bin, pretty: true)} with #{
+            "Could not match content offset #{offset} received #{inspect(bin, pretty: true)} expected #{
               inspect(expected_content, pretty: true)
             } original content #{inspect(content, pretty: true)}"
           )
