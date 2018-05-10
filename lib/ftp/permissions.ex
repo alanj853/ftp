@@ -116,7 +116,7 @@ defmodule Ftp.Permissions do
 
     cond do
       is_within_directory(root_dir, current_path) == false -> false
-      enabled == true && is_within_writeable_dirs(viewable_dirs, current_path) == false -> false
+      enabled == true && is_within_writeable_dirs(permissions, current_path) == false -> false
       is_read_only_dir(parent_dir) == true -> false
       true -> true
     end
