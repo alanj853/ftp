@@ -33,5 +33,6 @@ defmodule Ftp.Supervisor do
 
   def stop_server(name) do
     Supervisor.terminate_child(@server_name, name)
+    Supervisor.delete_child(@server_name, name)
   end
 end
