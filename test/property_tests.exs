@@ -121,6 +121,18 @@ defmodule PropertyTests do
     |> oneof()
   end
 
+  def valid_login(pid) do
+    :ftp.user pid, 'user', 'pass'
+  end
+
+  def invalid_login(:password, pid) do
+    :ftp.user pid, 'user', 'badpass'
+  end
+
+  def invalid_login(:user, pid) do
+    :ftp.user pid, 'baduser', 'pass'
+  end
+
   def command({:off, _}) do
     {:call, __MODULE__, :start_server, []}
   end
@@ -134,9 +146,9 @@ defmodule PropertyTests do
 
   def command({:connected, %{pid: pid}}) do
     oneof([
-      {:call, :ftp, :user, [pid, 'user', 'pass']},
-      {:call, :ftp, :user, [pid, 'baduser', 'pass']},
-      {:call, :ftp, :user, [pid, 'user', 'badpass']},
+      {:call, __MODULE__, :valid_login, [pid]},
+      {:call, __MODULE__, :invalid_login, [:password, pid]},
+      {:call, __MODULE__, :invalid_login, [:user, pid]},
       {:call, __MODULE__, :disconnect, [pid]},
       {:call, __MODULE__, :stop_server, []}
     ])
@@ -166,7 +178,8 @@ defmodule PropertyTests do
       when state in [:connected, :authenticated],
       do: true
 
-  def precondition({:connected, _}, {:call, :ftp, :user, _}), do: true
+  def precondition({:connected, _}, {:call, __MODULE__, :invalid_login, _}), do: true
+  def precondition({:connected, _}, {:call, __MODULE__, :valid_login, _}), do: true
 
   def precondition({:authenticated, %{files: []}}, {:call, :ftp, command, _})
       when command in [:recv_bin, :delete],
@@ -209,14 +222,14 @@ defmodule PropertyTests do
   def next_state(
         {:connected, %{pid: pid} = data},
         _,
-        {:call, :ftp, :user, [pid, 'user', 'pass']}
+        {:call, __MODULE__, :valid_login, [pid]}
       ),
       do: {:authenticated, data}
 
   def next_state(
         {:connected, %{pid: pid} = data},
         _,
-        {:call, :ftp, :user, [pid, 'user', 'pass']}
+        {:call, __MODULE__, :invalid_login, [_, pid]}
       ),
       do: {:disconnected, %{data | pid: nil}}
 
@@ -439,17 +452,16 @@ defmodule PropertyTests do
     end
   end
 
-  def postcondition({:connected, _}, {:call, :ftp, :user, [_, 'user', 'pass']}, :ok), do: true
+  def postcondition({:connected, _}, {:call, __MODULE__, :valid_login, _}, :ok), do: true
 
-  def postcondition({:connected, _}, {:call, :ftp, :user, [_, 'user', 'pass']
-    = args}, {:error, _} = error) do
-    IO.puts("Failed to login as #{inspect(args)} error: #{inspect error}")
-      false
+  def postcondition({:connected, _}, {:call, __MODULE__, :valid_login, _}, {:error, _} = error) do
+    IO.puts("Failed valid login error: #{inspect error}")
+    false
   end
 
-  def postcondition({:connected, _}, {:call, :ftp, :user, _}, {:error, :euser}), do: true
-  def postcondition({:connected, _}, {:call, :ftp, :user, args}, :ok) do
-    IO.puts("Insecure login as #{inspect(args)} was allowed")
+  def postcondition({:connected, _}, {:call, __MODULE__, :invalid_login, _}, {:error, :euser}), do: true
+  def postcondition({:connected, _}, {:call, __MODULE__, :invalid_login, _}, :ok) do
+    IO.puts("Insecure login allowed")
     false
   end
 
