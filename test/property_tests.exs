@@ -389,7 +389,7 @@ defmodule PropertyTests do
 
     case found do
       {_, ^download_name, content} ->
-        {_, expected_content} = String.split_at(content, offset)
+        <<_::binary-size(offset), expected_content::binary>> = content
 
         if expected_content == bin do
           true
