@@ -40,7 +40,13 @@ init([HookModule, Opts]) ->
     SslCert = proplists:get_value(ssl_cert, Opts),
     CaSslCert = proplists:get_value(ca_ssl_cert, Opts),
     UTF8 = proplists:get_value(utf8, Opts),
-    case listen_socket(Port, [{active, false}, {reuseaddr, true}, list]) of
+    IpOpts = case proplists:get_value(ip_address, Opts) of
+                undefined ->
+                    [];
+                IfAddr ->
+                    [{ifaddr, IfAddr}]
+             end,
+    case listen_socket(Port, [{active, false}, {reuseaddr, true}, list] ++ IpOpts) of
         {ok, Listen} ->
             IpAddress = default(proplists:get_value(ip_address, Opts), get_socket_addr(Listen)),
             InitialState = #connection_state{module=HookModule,

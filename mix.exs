@@ -8,7 +8,8 @@ defmodule Ftp.Mixfile do
       elixir: "~> 1.4",
       build_embedded: Mix.env() == :prod,
       start_permanent: Mix.env() == :prod,
-      deps: deps()
+      deps: deps(),
+      erlc_paths: erlc_paths(Mix.env())
     ]
   end
 
@@ -26,6 +27,9 @@ defmodule Ftp.Mixfile do
   def applications(_) do
     { Ftp, [] }
   end
+
+  def erlc_paths(:test), do: ["src", "test/src"]
+  def erlc_paths(_), do: ["src"]
 
   # Dependencies can be Hex packages:
   #

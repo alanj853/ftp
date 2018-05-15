@@ -10,11 +10,11 @@ defmodule Ftp.Bifrost do
   require Record
   require Logger
 
-  Record.defrecord(:file_info, Record.extract(:file_info, from: "include/bifrost.hrl"))
+  Record.defrecord(:file_info, Record.extract(:file_info, from: "#{__DIR__}/../../include/bifrost.hrl"))
 
   Record.defrecord(
     :connection_state,
-    Record.extract(:connection_state, from: "include/bifrost.hrl")
+    Record.extract(:connection_state, from: "#{__DIR__}/../../include/bifrost.hrl")
   )
 
   defmodule State do
@@ -207,8 +207,20 @@ defmodule Ftp.Bifrost do
           current_directory: current_directory,
           root_dir: root_dir
         } = state,
-        path
+        args
       ) do
+
+    path =
+      args
+      |> OptionParser.split()
+      |> OptionParser.parse()
+      |> case do
+        {_parsed, [path], _unknown} -> path
+        {_parsed, [], _unknown} -> ""
+        _ -> ""
+      end
+
+
     working_path = determine_path(root_dir, current_directory, path)
     {:ok, files} = File.ls(working_path)
 
@@ -218,13 +230,10 @@ defmodule Ftp.Bifrost do
         false -> files
       end
 
-    if files == [] do
-      {:error, state}
-    else
-      for file <- files, info = encode_file_info(permissions, file |> Path.absname(working_path)), info != nil do
-        info
-      end
+    for file <- files, info = encode_file_info(permissions, file |> Path.absname(working_path)), info != nil do
+      info
     end
+
   end
 
   # State, Path -> State Change

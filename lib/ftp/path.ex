@@ -4,9 +4,8 @@ defmodule Ftp.Path do
   """
   require Logger
 
-  def is_absolute_path(path) do
-    path == String.trim_leading(path, "/")
-  end
+  def is_absolute_path("/" <> _path), do: true
+  def is_absolute_path(_path), do: false
 
   @doc """
   Function to determine the path as it is on the filesystem, given the `root_directory` on the ftp server, `current_directory`
@@ -26,11 +25,12 @@ defmodule Ftp.Path do
           |> Path.expand(root_directory)
       end
 
-    Logger.debug(
-      "This is the path we were given: '#{path}'. This is current_directory: '#{current_directory}'. This is root_directory: '#{
-        root_directory
-      }'. Determined that this is the current path: '#{new_path}'"
-    )
+    Logger.debug("""
+    This is the path we were given: '#{path}'
+    This is current_directory: '#{current_directory}'
+    This is root_directory: '#{root_directory}'
+    Determined that this is the current path: '#{new_path}'
+    """)
 
     new_path
   end
