@@ -14,6 +14,7 @@ defmodule PropertyTests do
   @moduletag capture_log: true
 
   def reset_server do
+    Application.stop(:ftp)
     File.rm_rf(@test_dir)
     File.mkdir_p(@test_dir)
     :ok = File.write(@initial_file, @initial_file_content)
@@ -25,11 +26,7 @@ defmodule PropertyTests do
       trap_exit(
         forall cmds in commands(__MODULE__) do
           reset_server()
-
           Application.ensure_all_started(:ftp)
-
-          # Start the Sample Server
-          Ftp.sample()
 
           {history, state, result} = run_commands(__MODULE__, cmds)
 
@@ -55,7 +52,15 @@ defmodule PropertyTests do
             files: [{@default_dir, @initial_filename, @initial_file_content}],
             dirs: []
 
-  def initial_state, do: {:disconnected, %__MODULE__{}}
+  def initial_state, do: {:off, %__MODULE__{}}
+
+  def start_server do
+    {:ok, pid} = Ftp.sample()
+  end
+
+  def stop_server do
+    Ftp.close_server(:sample)
+  end
 
   def connect do
     {:ok, pid} =
@@ -116,14 +121,22 @@ defmodule PropertyTests do
     |> oneof()
   end
 
+  def command({:off, _}) do
+    {:call, __MODULE__, :start_server, []}
+  end
+
   def command({:disconnected, _}) do
-    {:call, __MODULE__, :connect, []}
+    oneof([
+      {:call, __MODULE__, :connect, []},
+      {:call, __MODULE__, :stop_server, []}
+    ])
   end
 
   def command({:connected, %{pid: pid}}) do
     oneof([
       {:call, :ftp, :user, [pid, 'user', 'pass']},
-      {:call, __MODULE__, :disconnect, [pid]}
+      {:call, __MODULE__, :disconnect, [pid]},
+      {:call, __MODULE__, :stop_server, []}
     ])
   end
 
@@ -137,9 +150,13 @@ defmodule PropertyTests do
       {:call, :ftp, :send_bin, [pid, file_content(), filename()]},
       {:call, :ftp, :mkdir, [pid, dirname()]},
       {:call, :ftp, :pwd, [pid]},
+      {:call, __MODULE__, :stop_server, []},
       {:call, __MODULE__, :receive_with_offset, [pid, a_file_with_offset(data)]}
     ])
   end
+
+  def precondition({:off, _}, {:call, __MODULE__, :start_server, []}), do: true
+  def precondition({state, _}, {:call, __MODULE__, :stop_server, []}) when state != :off, do: true
 
   def precondition({:disconnected, _}, {:call, __MODULE__, :connect, []}), do: true
 
@@ -165,17 +182,21 @@ defmodule PropertyTests do
   def precondition(
         {:authenticated, %{files: []}},
         {:call, __MODULE__, :receive_with_offset, [_, _]}
-  ) do
+      ) do
     false
   end
 
   def precondition(
         {:authenticated, _},
         {:call, __MODULE__, :receive_with_offset, [_, _]}
-  ), do: true
+      ),
+      do: true
 
   def precondition({:authenticated, _}, {:call, :ftp, _, _}), do: true
   def precondition(_, _), do: false
+
+  def next_state({_, data}, _, {:call, __MODULE__, :start_server, []}), do: {:disconnected, data}
+  def next_state({_, data}, _, {:call, __MODULE__, :stop_server, []}), do: {:off, data}
 
   def next_state({:disconnected, data}, pid, {:call, __MODULE__, :connect, []}) do
     {:connected, %{data | pid: pid}}
@@ -414,6 +435,9 @@ defmodule PropertyTests do
   def postcondition({:connected, _}, {:call, :ftp, :user, args}, {:error, _} = error) do
     IO.puts("Failed to login as #{inspect(args)} error: #{error}")
   end
+
+  def postcondition(_, {:call, __MODULE__, :start_server, []}, {:ok, _}), do: true
+  def postcondition(_, {:call, __MODULE__, :stop_server, []}, :ok), do: true
 
   def postcondition(previous_state, command, result) do
     IO.puts("default failure #{inspect([previous_state, command, result])} ")
