@@ -4,7 +4,7 @@ defmodule PropertyTests do
   use ExUnit.Case, async: false
 
   @default_dir '/'
-  @test_dir './_tmp_server'
+  @test_dir './tmp/ftp_root'
   @test_port 2525
   @initial_filename 'initial_file.txt'
   @initial_file @test_dir ++ '/' ++ @initial_filename
@@ -55,7 +55,7 @@ defmodule PropertyTests do
   def initial_state, do: {:off, %__MODULE__{}}
 
   def start_server do
-    {:ok, pid} = Ftp.sample()
+    Ftp.sample()
   end
 
   def stop_server do
