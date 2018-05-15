@@ -55,7 +55,7 @@ defmodule PropertyTests do
   def initial_state, do: {:off, %__MODULE__{}}
 
   def start_server do
-     Ftp.sample()
+    Ftp.sample()
   end
 
   def stop_server do
@@ -122,15 +122,15 @@ defmodule PropertyTests do
   end
 
   def valid_login(pid) do
-    :ftp.user pid, 'user', 'pass'
+    :ftp.user(pid, 'user', 'pass')
   end
 
   def invalid_login(:password, pid) do
-    :ftp.user pid, 'user', 'badpass'
+    :ftp.user(pid, 'user', 'badpass')
   end
 
   def invalid_login(:user, pid) do
-    :ftp.user pid, 'baduser', 'pass'
+    :ftp.user(pid, 'baduser', 'pass')
   end
 
   def command({:off, _}) do
@@ -455,11 +455,13 @@ defmodule PropertyTests do
   def postcondition({:connected, _}, {:call, __MODULE__, :valid_login, _}, :ok), do: true
 
   def postcondition({:connected, _}, {:call, __MODULE__, :valid_login, _}, {:error, _} = error) do
-    IO.puts("Failed valid login error: #{inspect error}")
+    IO.puts("Failed valid login error: #{inspect(error)}")
     false
   end
 
-  def postcondition({:connected, _}, {:call, __MODULE__, :invalid_login, _}, {:error, :euser}), do: true
+  def postcondition({:connected, _}, {:call, __MODULE__, :invalid_login, _}, {:error, :euser}),
+    do: true
+
   def postcondition({:connected, _}, {:call, __MODULE__, :invalid_login, _}, :ok) do
     IO.puts("Insecure login allowed")
     false
