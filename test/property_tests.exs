@@ -55,7 +55,7 @@ defmodule PropertyTests do
   def initial_state, do: {:off, %__MODULE__{}}
 
   def start_server do
-    Ftp.sample()
+     Ftp.sample()
   end
 
   def stop_server do
@@ -135,6 +135,8 @@ defmodule PropertyTests do
   def command({:connected, %{pid: pid}}) do
     oneof([
       {:call, :ftp, :user, [pid, 'user', 'pass']},
+      {:call, :ftp, :user, [pid, 'baduser', 'pass']},
+      {:call, :ftp, :user, [pid, 'user', 'badpass']},
       {:call, __MODULE__, :disconnect, [pid]},
       {:call, __MODULE__, :stop_server, []}
     ])
@@ -207,9 +209,16 @@ defmodule PropertyTests do
   def next_state(
         {:connected, %{pid: pid} = data},
         _,
-        {:call, :ftp, :user, [pid, _, _]}
+        {:call, :ftp, :user, [pid, 'user', 'pass']}
       ),
       do: {:authenticated, data}
+
+  def next_state(
+        {:connected, %{pid: pid} = data},
+        _,
+        {:call, :ftp, :user, [pid, 'user', 'pass']}
+      ),
+      do: {:disconnected, %{data | pid: nil}}
 
   def next_state(
         {state, %{files: files, pwd: pwd} = data},
@@ -430,10 +439,18 @@ defmodule PropertyTests do
     end
   end
 
-  def postcondition({:connected, _}, {:call, :ftp, :user, _}, :ok), do: true
+  def postcondition({:connected, _}, {:call, :ftp, :user, [_, 'user', 'pass']}, :ok), do: true
 
-  def postcondition({:connected, _}, {:call, :ftp, :user, args}, {:error, _} = error) do
-    IO.puts("Failed to login as #{inspect(args)} error: #{error}")
+  def postcondition({:connected, _}, {:call, :ftp, :user, [_, 'user', 'pass']
+    = args}, {:error, _} = error) do
+    IO.puts("Failed to login as #{inspect(args)} error: #{inspect error}")
+      false
+  end
+
+  def postcondition({:connected, _}, {:call, :ftp, :user, _}, {:error, :euser}), do: true
+  def postcondition({:connected, _}, {:call, :ftp, :user, args}, :ok) do
+    IO.puts("Insecure login as #{inspect(args)} was allowed")
+    false
   end
 
   def postcondition(_, {:call, __MODULE__, :start_server, []}, {:ok, _}), do: true
