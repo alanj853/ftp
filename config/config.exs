@@ -18,7 +18,7 @@ use Mix.Config
 #
 # Or configure a 3rd-party app:
 #
-config :logger, level: :debug
+config :logger, level: :info
 #
 
 # It is also possible to import configuration files, relative to this
@@ -34,3 +34,14 @@ config :ftp,
   password: "password1",
   ro_dirs: ["/home/alan/Development"],
   rw_dirs: ["/home/alan/Development/ftp"]
+
+config :ftp, :events,
+  [
+    :e_transfer_started,
+    :e_transfer_failed,
+    :e_transfer_successful,
+    :e_login_failed,
+    :e_login_successful,
+    :e_logout_failed,
+    :e_logout_successful,
+  ]

@@ -96,10 +96,12 @@ defmodule Ftp.Bifrost do
       when is_function(authentication_function, 3) do
     case authentication_function.(username, password, ip_address) do
       {:ok, session, user} ->
+        Ftp.EventDispatcher.dispatch(:e_login_successful)
         {true, %{state | session: session, user: user}}
 
       {:error, error} ->
         Logger.debug("Failed to log in. Reason: #{error}")
+        Ftp.EventDispatcher.dispatch(:e_login_failed)
         {false, state}
     end
   end
@@ -112,8 +114,12 @@ defmodule Ftp.Bifrost do
         _ip_address
       ) do
     case {username, password} do
-      {^expected_username, ^expected_password} -> {true, %{state | user: expected_username}}
-      _ -> {false, state}
+      {^expected_username, ^expected_password} ->
+        Ftp.EventDispatcher.dispatch(:e_login_successful)
+        {true, %{state | user: expected_username}}
+      _ ->
+        Ftp.EventDispatcher.dispatch(:e_login_failed)
+        {false, state}
     end
   end
 
@@ -358,11 +364,15 @@ defmodule Ftp.Bifrost do
         false -> :ok
       end
 
+      Ftp.EventDispatcher.dispatch(:e_transfer_started)
       case receive_file(working_path, mode, recv_data) do
         :ok ->
+          Ftp.EventDispatcher.dispatch(:e_transfer_successful)
           {:ok, state}
 
         :error ->
+          ## TODO cannot seem to produce this event ##
+          Ftp.EventDispatcher.dispatch(:e_transfer_failed)
           {:error, state}
       end
     else
@@ -439,6 +449,7 @@ defmodule Ftp.Bifrost do
         {:ok, file} = :file.open(working_path, [:read, :binary])
         :file.position(file, state.offset)
         state = set_abort(%{state | offset: 0}, false)
+        Ftp.EventDispatcher.dispatch(:e_transfer_started)
         {:ok, &send_file(state, file, &1), state}
     end
   end
@@ -573,11 +584,16 @@ defmodule Ftp.Bifrost do
   def send_file(state, file, size) do
     unless aborted?(state) do
       case :file.read(file, size) do
-        :eof -> {:done, state}
+        :eof ->
+          Ftp.EventDispatcher.dispatch(:e_transfer_successful)
+          {:done, state}
         {:ok, bytes} -> {:ok, bytes, &send_file(state, file, &1)}
-        {:error, _} -> {:done, state}
+        {:error, _} -> 
+          Ftp.EventDispatcher.dispatch(:e_transfer_failed)
+          {:done, state}
       end
     else
+      Ftp.EventDispatcher.dispatch(:e_transfer_failed)
       {:done, state}
     end
   end

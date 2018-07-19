@@ -1,4 +1,8 @@
 defmodule Ftp.Listener do
+    @moduledoc """
+    Module for testing event dispatcher.
+    TODO --> delete when testing is complete.
+    """
   use GenServer
   require Logger
 
@@ -7,8 +11,7 @@ defmodule Ftp.Listener do
   end
 
   def init(_args) do
-    Ftp.EventDispatcher.register(:event1)
-    Ftp.EventDispatcher.register(:event2)
+    for event <- Application.get_env(:ftp, :events), do: Ftp.EventDispatcher.register(event)
     {:ok, %{}}
   end
 
