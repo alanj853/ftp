@@ -11,7 +11,9 @@ defmodule Ftp.Listener do
   end
 
   def init(_args) do
-    for event <- Application.get_env(:ftp, :events), do: Ftp.EventDispatcher.register(event)
+    Application.get_env(:ftp, :events)
+      |> Enum.each(fn(event) -> Ftp.EventDispatcher.register(event) end)
+
     {:ok, %{}}
   end
 

@@ -519,6 +519,7 @@ defmodule Ftp.Bifrost do
 
   # State -> State Change
   def disconnect(_state) do
+    Ftp.EventDispatcher.dispatch(:e_logout_successful)
     :ok
   end
 
