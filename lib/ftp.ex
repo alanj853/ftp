@@ -11,15 +11,16 @@ defmodule Ftp do
 
   def start(_type, _args) do
     children = [
-        # Starts a worker by calling: CommonData.Worker.start_link(arg)
-        # {CommonData.Worker, arg},
-        Ftp.Supervisor
-      ]
+      # Starts a worker by calling: CommonData.Worker.start_link(arg)
+      # {CommonData.Worker, arg},
+      Ftp.Supervisor,
+      Ftp.EventDispatcher
+    ]
 
-      # See https://hexdocs.pm/elixir/Supervisor.html
-      # for other strategies and supported options
-      opts = [strategy: :one_for_one]
-      Supervisor.start_link(children, opts)
+    # See https://hexdocs.pm/elixir/Supervisor.html
+    # for other strategies and supported options
+    opts = [strategy: :one_for_one]
+    Supervisor.start_link(children, opts)
   end
 
   @doc """
@@ -59,7 +60,8 @@ defmodule Ftp do
       :ok_to_start ->
         ip_address = process_ip(ip)
 
-        Ftp.Supervisor.start_server(name,
+        Ftp.Supervisor.start_server(
+          name,
           ip_address: ip_address,
           port: port,
           root_dir: root_directory,
