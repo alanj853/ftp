@@ -1,4 +1,4 @@
-defmodule PropertyTests do
+defmodule PropertyTest do
   use PropCheck.StateM
   use PropCheck
   use ExUnit.Case, async: false
@@ -501,5 +501,18 @@ defmodule PropertyTests do
   def postcondition(previous_state, command, result) do
     IO.puts("default failure #{inspect([previous_state, command, result])} ")
     false
+  end
+
+  def receive_event(event, message) do
+    receive do
+      {:ftp_event, ^event} ->
+        true
+      _ ->
+        receive_event(event, message)
+    after
+      1000 ->
+        IO.puts "#{event} never received: #{message}"
+        false
+    end
   end
 end
