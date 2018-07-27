@@ -357,7 +357,7 @@ defmodule Ftp.Bifrost do
       ) do
     working_path = determine_path(root_dir, current_directory, filename)
 
-    if allowed_to_store?(permissions, working_path, state) do
+    if allowed_to_write?(permissions, working_path, state) do
       Logger.debug("working_dir: #{working_path}")
 
       case File.exists?(working_path) do
@@ -639,10 +639,6 @@ defmodule Ftp.Bifrost do
     else
       file_handler.allowed_to_write?(working_path, name)
     end
-  end
-
-  defp allowed_to_store?(permissions, working_path, state) do
-    allowed_to_write?(permissions, working_path, state)
   end
 
   @doc """
