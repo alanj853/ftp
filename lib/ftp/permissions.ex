@@ -1,5 +1,4 @@
 defmodule Ftp.Permissions do
-  import Ftp.Path
   require Logger
 
   defstruct root_dir: "",
@@ -14,7 +13,7 @@ defmodule Ftp.Permissions do
   the original `current_path`
   """
   def allowed_to_read?(
-        %__MODULE__{root_dir: root_dir, viewable_dirs: viewable_dirs, enabled: enabled} =
+        %__MODULE__{root_dir: root_dir, viewable_dirs: _, enabled: enabled} =
           permissions,
         current_path
       ) do
@@ -108,7 +107,7 @@ defmodule Ftp.Permissions do
   Function used to determine if a user is allowed to write to the `current_path`
   """
   def allowed_to_write?(
-        %__MODULE__{root_dir: root_dir, viewable_dirs: viewable_dirs, enabled: enabled} =
+        %__MODULE__{root_dir: root_dir, viewable_dirs: _, enabled: enabled} =
           permissions,
         current_path
       ) do
@@ -155,7 +154,7 @@ defmodule Ftp.Permissions do
   and only show the files specified in the `limit_viewable_dirs` struct.
   """
   def remove_hidden_folders(
-        %__MODULE__{root_dir: root_dir, viewable_dirs: viewable_dirs} = permissions,
+        %__MODULE__{root_dir: root_dir, viewable_dirs: viewable_dirs},
         path,
         files
       ) do
