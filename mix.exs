@@ -25,7 +25,7 @@ defmodule Ftp.Mixfile do
   end
 
   def applications(_) do
-    { Ftp, [] }
+    {Ftp, []}
   end
 
   def erlc_paths(:test), do: ["src", "test/src"]

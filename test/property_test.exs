@@ -360,8 +360,8 @@ defmodule PropertyTest do
         {:call, __MODULE__, :get_unknown_file, [_]},
         {:ok, _bin}
       ) do
-        IO.puts "received unknown file"
-        false
+    IO.puts("received unknown file")
+    false
   end
 
   def postcondition(
@@ -369,7 +369,7 @@ defmodule PropertyTest do
         {:call, __MODULE__, :get_unknown_file, [_]},
         {:error, _}
       ) do
-        true
+    true
   end
 
   def postcondition({:authenticated, %{pwd: pwd}}, {:call, :ftp, :delete, [pid, filename]}, :ok) do
@@ -383,6 +383,7 @@ defmodule PropertyTest do
             inspect(filename)
           }"
         )
+
         false
     end
   end
@@ -507,11 +508,12 @@ defmodule PropertyTest do
     receive do
       {:ftp_event, ^event} ->
         true
+
       _ ->
         receive_event(event, message)
     after
       1000 ->
-        IO.puts "#{event} never received: #{message}"
+        IO.puts("#{event} never received: #{message}")
         false
     end
   end
