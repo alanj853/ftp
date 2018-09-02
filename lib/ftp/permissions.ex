@@ -13,8 +13,7 @@ defmodule Ftp.Permissions do
   the original `current_path`
   """
   def allowed_to_read?(
-        %__MODULE__{root_dir: root_dir, viewable_dirs: _, enabled: enabled} =
-          permissions,
+        %__MODULE__{root_dir: root_dir, viewable_dirs: _, enabled: enabled} = permissions,
         current_path
       ) do
     cond do
@@ -107,8 +106,7 @@ defmodule Ftp.Permissions do
   Function used to determine if a user is allowed to write to the `current_path`
   """
   def allowed_to_write?(
-        %__MODULE__{root_dir: root_dir, viewable_dirs: _, enabled: enabled} =
-          permissions,
+        %__MODULE__{root_dir: root_dir, viewable_dirs: _, enabled: enabled} = permissions,
         current_path
       ) do
     parent_dir = Path.dirname(current_path)

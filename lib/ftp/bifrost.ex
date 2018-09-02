@@ -108,7 +108,8 @@ defmodule Ftp.Bifrost do
   end
 
   def login(
-        %State{expected_username: expected_username, expected_password: expected_password} = state,
+        %State{expected_username: expected_username, expected_password: expected_password} =
+          state,
         username,
         password,
         _ip_address
@@ -359,7 +360,7 @@ defmodule Ftp.Bifrost do
 
     if allowed_to_write?(permissions, working_path, state) do
       Logger.debug("working_dir: #{working_path}")
-      
+
       case File.exists?(working_path) do
         true -> File.rm(working_path)
         false -> :ok
@@ -375,7 +376,7 @@ defmodule Ftp.Bifrost do
         :error ->
           ## TODO cannot seem to produce this event ##
           Ftp.EventDispatcher.dispatch(:e_transfer_failed)
-          {:error, :e_transfer_failed }
+          {:error, :e_transfer_failed}
       end
     else
       {:error, :eacces}

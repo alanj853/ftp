@@ -29,7 +29,7 @@ defmodule Ftp.EventDispatcher do
   end
 
   def start_link(_args \\ []) do
-    Registry.start_link([keys: :duplicate, name: @server_name])
+    Registry.start_link(keys: :duplicate, name: @server_name)
   end
 
   def register(item, meta \\ nil)
