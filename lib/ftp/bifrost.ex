@@ -233,7 +233,7 @@ defmodule Ftp.Bifrost do
     path =
       args
       |> OptionParser.split()
-      |> OptionParser.parse()
+      |> OptionParser.parse(switches: [])
       |> case do
         {_parsed, [path], _unknown} -> path
         {_parsed, [], _unknown} -> ""

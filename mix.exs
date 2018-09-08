@@ -9,8 +9,8 @@ defmodule Ftp.Mixfile do
       build_embedded: Mix.env() == :prod,
       start_permanent: Mix.env() == :prod,
       deps: deps(),
-      erlc_paths: erlc_paths(Mix.env()),
-      elixirc_options: [warnings_as_errors: true]
+      erlc_paths: erlc_paths(Mix.env())
+      # elixirc_options: [warnings_as_errors: true]
     ]
   end
 
@@ -45,7 +45,7 @@ defmodule Ftp.Mixfile do
     [
       {:ranch, "~> 1.3.2"},
       {:fsm, "~> 0.3.0"},
-      {:propcheck, "~> 1.0", only: :test},
+      {:propcheck, "~> 1.0", only: [:dev, :test]},
       {:mix_test_watch, "~> 0.5", only: :dev, runtime: false}
     ]
   end

@@ -4,7 +4,7 @@
   "fsm": {:hex, :fsm, "0.3.0", "d00e0a3c68f8cf8feb24ce3a732164638ec652c48ce416b66d4e375b6ee415eb", [:mix], [], "hexpm"},
   "meck": {:git, "git://github.com/eproxus/meck.git", "17b0ea5b7d9c93af3a52b5152c6bee14302b3885", [ref: "0.8.3"]},
   "mix_test_watch": {:hex, :mix_test_watch, "0.6.0", "5e206ed04860555a455de2983937efd3ce79f42bd8536fc6b900cc286f5bb830", [:mix], [{:file_system, "~> 0.2.1 or ~> 0.3", [hex: :file_system, repo: "hexpm", optional: false]}], "hexpm"},
-  "propcheck": {:hex, :propcheck, "1.0.4", "f83174301b637bce011a4ebf0e4f10e9bae38d6eefebdd117677c7884bc99aa4", [:mix], [{:proper, "~> 1.2.0", [hex: :proper, repo: "hexpm", optional: false]}], "hexpm"},
-  "proper": {:hex, :proper, "1.2.0", "1466492385959412a02871505434e72e92765958c60dba144b43863554b505a4", [:make, :mix, :rebar3], [], "hexpm"},
+  "propcheck": {:hex, :propcheck, "1.1.2", "6ec0e74cfd535ee3923c359f1f1f572451d9915faf9b8312245993e42edd7c84", [:mix], [{:proper, "~> 1.2", [hex: :proper, repo: "hexpm", optional: false]}], "hexpm"},
+  "proper": {:hex, :proper, "1.3.0", "c1acd51c51da17a2fe91d7a6fc6a0c25a6a9849d8dc77093533109d1218d8457", [:make, :mix, :rebar3], [], "hexpm"},
   "ranch": {:hex, :ranch, "1.3.2", "e4965a144dc9fbe70e5c077c65e73c57165416a901bd02ea899cfd95aa890986", [:rebar3], [], "hexpm"},
 }
