@@ -241,6 +241,37 @@ defmodule PropertyTest do
     def next(data, _, {:call, PropertyTest, :receive_with_offset, _}), do: {Authenticated, data}
     def next(data, _, {:call, PropertyTest, :get_unknown_file, _}), do: {Authenticated, data}
 
+    def next(
+          %{files: files, pwd: pwd} = data,
+          _,
+          {:call, :ftp, :send_bin, [_, contents, filename]}
+        ) do
+      {Authenticated, %{data | files: [{pwd, filename, contents} | files]}}
+    end
+
+    def next(
+          %{dirs: dirs, pwd: pwd} = data,
+          _,
+          {:call, :ftp, :mkdir, [_, dirname]}
+        ) do
+      {Authenticated, %{data | dirs: [pwd ++ dirname | dirs]}}
+    end
+
+    def next(
+          %{files: files, pwd: pwd} = data,
+          _,
+          {:call, :ftp, :delete, [_, filename]}
+        ) do
+      new_files =
+        files
+        |> Enum.reject(fn {dir, name, _} ->
+          Path.join([to_string(dir), to_string(name)]) ==
+            Path.join([to_string(pwd), to_string(filename)])
+        end)
+
+      {Authenticated, %{data | files: new_files}}
+    end
+
     def postcondition(_, {:call, PropertyTest, :stop_server, []}, :ok), do: true
     def postcondition(%{pid: pid}, {:call, PropertyTest, :disconnect, [pid]}, :ok), do: true
 
@@ -490,64 +521,13 @@ defmodule PropertyTest do
   def command({state, data}), do: state.command(data)
 
   def precondition({state, _}, {:call, __MODULE__, :stop_server, []}) when state != Off, do: true
-
   def precondition({state, data}, call), do: state.precondition(data, call)
 
   def next_state({_, data}, _, {:call, __MODULE__, :start_server, []}), do: {Disconnected, data}
   def next_state({_, data}, _, {:call, __MODULE__, :stop_server, []}), do: {Off, data}
   def next_state({_, data}, _, {:call, __MODULE__, :disconnect, _}), do: {Disconnected, data}
 
-  def next_state(
-        {state, %{files: files, pwd: pwd} = data},
-        _,
-        {:call, :ftp, :send_bin, [_, contents, filename]}
-      ) do
-    {state, %{data | files: [{pwd, filename, contents} | files]}}
-  end
-
-  def next_state(
-        {Authenticated, %{dirs: dirs, pwd: pwd} = data},
-        _,
-        {:call, :ftp, :mkdir, [_, dirname]}
-      ) do
-    {Authenticated, %{data | dirs: [pwd ++ dirname | dirs]}}
-  end
-
-  def next_state(
-        {state, %{files: files, pwd: pwd} = data},
-        _,
-        {:call, :ftp, :delete, [_, filename]}
-      ) do
-    new_files =
-      files
-      |> Enum.reject(fn {dir, name, _} ->
-        Path.join([to_string(dir), to_string(name)]) ==
-          Path.join([to_string(pwd), to_string(filename)])
-      end)
-
-    {state, %{data | files: new_files}}
-  end
-
   def next_state({state, data}, result, call), do: state.next(data, result, call)
 
   def postcondition({state, data}, call, result), do: state.postcondition(data, call, result)
-
-  def postcondition(previous_state, command, result) do
-    IO.puts("default failure #{inspect([previous_state, command, result])} ")
-    false
-  end
-
-  def receive_event(event, message) do
-    receive do
-      {:ftp_event, ^event} ->
-        true
-
-      _ ->
-        receive_event(event, message)
-    after
-      1000 ->
-        IO.puts("#{event} never received: #{message}")
-        false
-    end
-  end
 end
