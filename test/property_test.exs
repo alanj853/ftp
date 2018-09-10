@@ -26,7 +26,7 @@ defmodule PropertyTest do
 
   property "ftp connections", [:verbose] do
     numtests(
-      200,
+     200,
       trap_exit(
         forall cmds in commands(__MODULE__) do
           reset_server()
@@ -35,7 +35,6 @@ defmodule PropertyTest do
           {history, state, result} = run_commands(__MODULE__, cmds)
 
           Application.stop(:ftp)
-
           (result == :ok)
           |> when_fail(
             IO.puts("""
@@ -47,6 +46,7 @@ defmodule PropertyTest do
             """)
           )
           |> aggregate(command_names(cmds))
+          |> measure("length", length(cmds))
         end
       )
     )
