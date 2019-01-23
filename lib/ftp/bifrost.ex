@@ -5,6 +5,7 @@ defmodule Ftp.Bifrost do
   @behaviour :gen_bifrost_server
 
   import Ftp.Path
+  import Ftp.Utils
 
   require Record
   require Logger
@@ -31,7 +32,9 @@ defmodule Ftp.Bifrost do
               abort_agent: nil,
               offset: 0,
               file_handler: nil,
-              server_name: nil
+              server_name: nil,
+              max_sessions: 0,
+              current_sessions: 0
   end
 
   # State is required to be a record, with our own state nested inside.
@@ -77,7 +80,15 @@ defmodule Ftp.Bifrost do
       |> Keyword.put(:expected_username, options[:username])
       |> Keyword.put(:expected_password, options[:password])
 
-    struct(State, options)
+    state = struct(State, options)
+
+    if ets_table_exists?(state.server_name) do
+      :ets.insert(state.server_name, {:max_sessions, state.max_sessions})
+      :ets.insert(state.server_name, {:current_sessions, state.current_sessions})
+    else
+      Logger.warn("No ets table of name #{inspect state.server_name}. Limited connections for this FTP server (#{inspect state.server_name}) may not work correctly")
+    end
+    state
   end
 
   # State, Username, Password -> {true OR false, State}
