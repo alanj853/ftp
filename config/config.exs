@@ -10,11 +10,11 @@ use Mix.Config
 
 # You can configure for your application as:
 #
-#     config :ftp, key: :value
+#     config :se_ftp, key: :value
 #
 # And access this configuration in your application as:
 #
-#     Application.get_env(:ftp, :key)
+#     Application.get_env(:se_ftp, :key)
 #
 # Or configure a 3rd-party app:
 #
