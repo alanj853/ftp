@@ -29,13 +29,13 @@ config :logger, level: :info
 #
 #     import_config "#{Mix.env}.exs"
 
-config :ftp,
+config :se_ftp,
   username: "user",
   password: "password1",
   ro_dirs: ["/home/alan/Development"],
   rw_dirs: ["/home/alan/Development/ftp"]
 
-config :ftp, :events, [
+config :se_ftp, :events, [
   :e_transfer_started,
   :e_transfer_failed,
   :e_transfer_successful,
