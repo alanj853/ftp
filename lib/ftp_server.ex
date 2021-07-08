@@ -1,17 +1,19 @@
 defmodule FtpServer do
     @moduledoc """
-    Documentation for FtpServer
+    Documentation for FtpServer. This GenServer is started by the FtpServerListener module.
     """
+
+    ## The FTP return codes (Ones not in use have been commented out to remove warnings)
     @ftp_DATACONN            150
-    @ftp_OK                  200
-    @ftp_NOOPOK              200
+    #@ftp_OK                  200
+    @ftp_NOOPOK              2000
     @ftp_TYPEOK              200
     @ftp_PORTOK              200
     @ftp_STRUOK              200
     @ftp_MODEOK              200
-    @ftp_ALLOOK              202
+    #@ftp_ALLOOK              202
     @ftp_NOFEAT              211
-    @ftp_STATOK              211
+    #@ftp_STATOK              211
     @ftp_STATFILE_OK         213
     @ftp_HELP                214
     @ftp_SYSTOK              215
@@ -20,36 +22,36 @@ defmodule FtpServer do
     @ftp_TRANSFEROK          226
     @ftp_ABORTOK             226
     @ftp_PASVOK              227
-    @ftp_EPRTOK              228
-    @ftp_EPSVOK              229
+    #@ftp_EPRTOK              228
+    #@ftp_EPSVOK              229
     @ftp_LOGINOK             230
     @ftp_CWDOK               250
     @ftp_RMDIROK             250
     @ftp_DELEOK              250
-    @ftp_RENAMEOK            250
+    #@ftp_RENAMEOK            250
     @ftp_PWDOK               257
     @ftp_MKDIROK             257
     @ftp_GIVEPWORD           331
     @ftp_RESTOK              350
-    @ftp_RNFROK              350
-    @ftp_TIMEOUT             421
-    @ftp_ABORT               421
-    @ftp_BADUSER_PASS        430
-    @ftp_BADSENDCONN         425
-    @ftp_BADSENDNET          426
+    #@ftp_RNFROK              350
+    #@ftp_TIMEOUT             421
+    #@ftp_ABORT               421
+    #@ftp_BADUSER_PASS        430
+    #@ftp_BADSENDCONN         425
+    #@ftp_BADSENDNET          426
     @ftp_TRANSFERABORTED     426
-    @ftp_BADSENDFILE         451
-    @ftp_BADCMD              500
+    #@ftp_BADSENDFILE         451
+    #@ftp_BADCMD              500
     @ftp_OPTSFAIL            501
-    @ftp_COMMANDNOTIMPL      502
-    @ftp_NEEDUSER            503
-    @ftp_NEEDRNFR            503
-    @ftp_BADSTRU             504
-    @ftp_BADMODE             504
+    #@ftp_COMMANDNOTIMPL      502
+    #@ftp_NEEDUSER            503
+    #@ftp_NEEDRNFR            503
+    #@ftp_BADSTRU             504
+    #@ftp_BADMODE             504
     @ftp_LOGINERR            530
     @ftp_FILEFAIL            550
     @ftp_NOPERM              550
-    @ftp_UPLOADFAIL          553
+    #@ftp_UPLOADFAIL          553
 
     @ftp_REPLYMYSELF           0
     @ftp_NORESPONSE            0
@@ -60,17 +62,24 @@ defmodule FtpServer do
     require Logger
     use GenServer
 
-    def start_link(ref, socket, transport, opts = [%{ftp_logger_pid: ftp_logger_pid, ftp_data_pid: ftp_data_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port, debug: debug, timeout: timeout, restart_time: restart_time, server_name: server_name, limit_viewable_dirs: limit_viewable_dirs}]) do
-        initial_state = %{ftp_logger_pid: ftp_logger_pid, ftp_data_pid: ftp_data_pid, root_dir: root_dir, username: username, password: password, ip: ip, port: port, debug: debug, timeout: timeout, restart_time: restart_time, listener_ref: ref, control_socket: socket, transport: transport, server_name: server_name, limit_viewable_dirs: limit_viewable_dirs}
+    def start_link(ref, socket, transport, _opts = [options]) do
+        initial_state = options
+            |> Map.put(:control_socket, socket)
+            |> Map.put(:transport, transport)
         pid  = :proc_lib.spawn_link(__MODULE__, :init, [ref, socket, transport, initial_state])
         {:ok, pid}
     end
 
-    def init(ref, socket, transport, state) do
+    def init(ref, socket, _transport, state) do
         start_listener(ref,socket, state)
         :gen_server.enter_loop(__MODULE__, [], [])
         {:ok, %{}}
-    end   
+    end
+    
+    ## Function present to remove warnings
+    def init(_) do
+        {:ok, []}
+    end
     
     def start_listener(listener_pid, socket, state) do
         setup_dd(state)
@@ -86,7 +95,7 @@ defmodule FtpServer do
             {:error, reason} -> logger_debug("Socket not set to active. Reason #{reason}", :comm)
         end
         
-        sucessful_authentication = auth()
+        sucessful_authentication = auth(Map.get(state, :server_name))
         case sucessful_authentication do
             true ->
                 logger_debug("Valid Login Credentials", :comm)
@@ -98,29 +107,20 @@ defmodule FtpServer do
         end
     end
 
-    def set_state(state) do
-        GenServer.call __MODULE__, {:set_state, state}
-    end
 
-    def get_state() do
-        GenServer.call self(), :get_state
-    end
-
-    def handle_call({:set_state, new_state}, _from, state) do
-        {:reply, state, new_state}
-    end
-
-    def handle_call(:get_state, _from, state) do
-        socket_status = Map.get(state, :socket) |> Port.info
-        logger_debug "Got state. Socket status: #{inspect socket_status}"
-        {:reply, state, state}
-    end
-
+    @doc """
+    Handler for when we receive log messages from FtpData. `message` is prepened with 
+    a tag to tell the logger where exactly the message was sourced from.
+    """
     def handle_info({:ftp_data_log_message, message}, state) do
         Enum.join([" [FTP_DATA]   ", message]) |> logger_debug
         {:noreply, state}
     end
 
+    
+    @doc """
+    Handler for when we receive no-log messages from FtpData.
+    """
     def handle_info({:from_ftp_data, msg},state) do
         ftp_data_pid = get(:ftp_data_pid)
         logger_debug "This is msg: #{inspect msg}"
@@ -143,6 +143,10 @@ defmodule FtpServer do
         {:noreply, state}
     end
 
+
+    @doc """
+    Handler for all TCP messages received on `socket`.
+    """
     def handle_info({:tcp, socket, packet }, state) do
         control_socket = get(:control_socket)
         data_socket = get(:data_socket)
@@ -158,12 +162,27 @@ defmodule FtpServer do
         {:noreply, state}
     end
 
+    
+    @doc """
+    Handler for when `socket` has been closed.
+    """
     def handle_info({:tcp_closed, socket }, state) do
         socket_status = Port.info(socket)
         logger_debug "Socket #{inspect socket} closed. Actual Socket status: #{inspect socket_status} . Connection to client ended"
         {:noreply, state}
     end
+
+    @doc """
+    Handler for `unknown` messages
+    """
+    def handle_info({ref, :undefined}, state) when is_reference(ref) do
+        logger_debug "Received an unknown message: #{inspect ref}"
+        {:noreply, state}
+    end
     
+    @doc """
+    Handler for when this `GenServer` terminates
+    """
     def terminate(reason, _state) do
         logger_debug "This is terminiate reason:\nSTART\n#{inspect reason}\nEND"
     end
@@ -181,6 +200,7 @@ defmodule FtpServer do
         {code, response} =
         cond do
             String.contains?(command, "LIST") == true -> handle_list(command)
+            String.contains?(command, "NLST") == true -> handle_nlst(command)
             String.contains?(command, "TYPE") == true -> handle_type(command)
             String.contains?(command, "STRU") == true -> handle_stru(command)
             String.contains?(command, "QUIT") == true -> handle_quit(command)
@@ -234,7 +254,7 @@ defmodule FtpServer do
     @doc """
     Function to handle opts commands. Still needs work for providing useful feedback
     """
-    def handle_opts(command) do
+    def handle_opts(_command) do
         {@ftp_OPTSFAIL, "OPTS is fully not supported yet"}
     end
 
@@ -267,6 +287,7 @@ defmodule FtpServer do
     Function to handle rmd command
     """
     def handle_rmd(command) do
+        command = String.trim_leading(command, "X") ## in the event we get an XRMD command
         "RMD " <> path = command |> String.trim()
         root_dir = get(:root_dir)
         current_client_working_directory = get(:client_cd)
@@ -291,6 +312,7 @@ defmodule FtpServer do
     Function to handle mkd command
     """
     def handle_mkd(command) do
+        command = String.trim_leading(command, "X") ## in the event we get an XMKD command
         "MKD " <> path = command |> String.trim()
         root_dir = get(:root_dir)
         current_client_working_directory = get(:client_cd)
@@ -303,8 +325,10 @@ defmodule FtpServer do
             path_exists == true -> {@ftp_FILEFAIL, "Current directory '#{path}' already exists."}
             have_read_access == false || have_write_access == false -> {@ftp_NOPERM, "You don't have permission to create this directory ('#{path}')."}
             true ->
-                File.mkdir(working_path)
-                {@ftp_MKDIROK, "Successfully created directory '#{path}'"}
+                case File.mkdir(working_path) do
+                    :ok -> {@ftp_MKDIROK, "Successfully created directory '#{path}'"}
+                    {:error, error} -> {@ftp_FILEFAIL, "Could not create '#{working_path}'. Reason #{inspect error}"}
+                end
         end
     end
 
@@ -329,18 +353,19 @@ defmodule FtpServer do
     Function to handle pasv command
     """
     def handle_pasv(_command) do
-        p1 = :random.uniform(230)
-        p2 = :random.uniform(230)
-        port_number = p1*256 + p2
-        ftp_data_pid = get(:ftp_data_pid)
+        {port_number, p1, p2} = get_pasv_port()
         ip = get(:control_ip)
-        put(:data_ip, "127.0.0.1") ## update data socket info with new ip
+        put(:data_ip, ip_tuple_to_string(ip)) ## update data socket info with new ip
         put(:data_port, port_number) ## update data socket info with new port_number
         {h1, h2, h3, h4} = ip
-        pasv(ip, port_number)
-        :timer.sleep(100) ## need to sleep to give ranch time to create socket
-        send_message(@ftp_PASVOK, "Entering Passive Mode (#{inspect h1},#{inspect h2},#{inspect h3},#{inspect h4},#{inspect p1},#{inspect p2})")
-        {@ftp_REPLYMYSELF, ""}
+        case pasv(ip, port_number) do
+            :ok ->
+                send_message(@ftp_PASVOK, "Entering Passive Mode (#{inspect h1},#{inspect h2},#{inspect h3},#{inspect h4},#{inspect p1},#{inspect p2})")
+                {@ftp_REPLYMYSELF, ""}
+            {:error, error} ->
+                send_message(@ftp_TRANSFERABORTED, "Error could not start pasv listenser. Reason: #{error}")
+                {@ftp_TRANSFERABORTED, ""}
+        end        
     end
 
     
@@ -434,7 +459,6 @@ defmodule FtpServer do
     Function to handle list command
     """
     def handle_list(command) do
-        ftp_data_pid = get(:ftp_data_pid)
         case command do
             "LIST\r\n" ->
                 get(:server_cd) |> do_list()
@@ -449,7 +473,6 @@ defmodule FtpServer do
                 working_path = determine_path(root_dir, current_client_working_directory, path)
         
                 path_exists = File.exists?(working_path)
-                is_directory = File.dir?(working_path)
                 have_read_access = allowed_to_read(working_path)
         
                 cond do
@@ -459,8 +482,16 @@ defmodule FtpServer do
                         do_list(working_path)
                         {@ftp_NORESPONSE, :ok}
                 end
-            _ -> {@ftp_COMMANDNOTIMPL, "That LIST Command is not implemented on this server"}
         end
+    end
+
+    @doc """
+    Function to handle list command
+    """
+    def handle_nlst(command) do
+        [_nlst_part, data] = String.split(command, "NLST")
+        command = "LIST" <> data
+        handle_list(command) ## is a list command
     end
 
     
@@ -495,7 +526,6 @@ defmodule FtpServer do
     def handle_stor(command) do
         "STOR " <> path = command |> String.trim()
 
-        ftp_data_pid = get(:ftp_data_pid)
         root_dir = get(:root_dir)
         current_client_working_directory = get(:client_cd)
         ip = get(:data_ip)
@@ -527,7 +557,6 @@ defmodule FtpServer do
     def handle_retr(command) do
         "RETR " <> path = command |> String.trim()
         
-        ftp_data_pid = get(:ftp_data_pid)
         root_dir = get(:root_dir)
         current_client_working_directory = get(:client_cd)
         ip = get(:data_ip)
@@ -601,28 +630,6 @@ defmodule FtpServer do
 
     
     @doc """
-    Function to validate username
-    """
-    def valid_username(expected_username, username) do
-        case (expected_username == username) do
-            true -> 0
-            false -> 1
-        end
-    end
-
-    
-    @doc """
-    Function to validate password
-    """
-    def valid_password(expected_password, password) do
-        case (expected_password == password) do
-            true -> 0
-            false -> 1
-        end
-    end
-
-    
-    @doc """
     Function to send any log messages to the FtpLogger module. A priority-based
     system is used:
     1. If `priority` equals `:all` (default) then all messages sent to this function will be logged
@@ -668,7 +675,6 @@ defmodule FtpServer do
     transmission to the client over the data socket
     """
     def do_list(working_path) do
-        ftp_data_pid = get(:ftp_data_pid)
         viewable = get(:limit_viewable_dirs) |> Map.get(:enabled)
         {:ok, files} = File.ls(working_path)
         files = 
@@ -803,11 +809,12 @@ defmodule FtpServer do
     """
     def allowed_to_write(current_path) do
         root_dir = get(:root_dir)
+        parent_dir = Path.dirname(current_path)
         %{enabled: enabled, viewable_dirs: viewable_dirs } = get(:limit_viewable_dirs)
         cond do
             ( is_within_directory(root_dir, current_path) == false ) -> false
             ( enabled == true && is_within_writeable_dirs(viewable_dirs, current_path) == false ) -> false
-            ( is_read_only_dir(current_path) == true ) -> false
+            ( is_read_only_dir(parent_dir) == true ) -> false
             true -> true
         end
     end
@@ -827,11 +834,16 @@ defmodule FtpServer do
     Function to check is `path` is part of the machines own read-only  filesystem
     """
     def is_read_only_dir(path) do
-        {:ok, info} = File.stat(path)
-        case Map.get(info, :access) do
-            :read -> true
-            :none -> true
-            _ -> false
+        case File.stat(path) do
+            {:ok, info} ->
+                case Map.get(info, :access) do
+                    :read -> true
+                    :none -> true
+                    _ -> false
+                end
+            {:error, error} ->
+                logger_debug("Could not determine if #{inspect path} is read-only or not (Reason: #{inspect error}), so assuming it is not and returning false.")
+                false
         end
     end
 
@@ -842,7 +854,8 @@ defmodule FtpServer do
     """
     def get_info(cd,files) do
         list = for file <- files, do: Enum.join([cd, "/", file]) |> format_file_info
-        Enum.join(list, "\r\n")
+        list_of_files = Enum.join(list, "\r\n")
+        String.replace(list_of_files, ":error \r\n", "", [global: true]) ## remove results that returned :error
     end
 
 
@@ -853,19 +866,22 @@ defmodule FtpServer do
         root_dir = get(:root_dir)
         name = String.trim_leading(file, root_dir) |> String.split("/") |> List.last
         logger_debug "getting info for #{file}"
-        {:ok, info} = File.stat(file)
-        size = Map.get(info, :size)
-        {{_y, m, d}, {h, min, _s}} = Map.get(info, :mtime)
-        time = Enum.join([h, min], ":")
-        m = format_month(m)
-        timestamp = Enum.join([m, d, time], " ")
-        links = Map.get(info, :links)
-        uid = Map.get(info, :uid)
-        gid = Map.get(info, :gid)
-        type = Map.get(info, :type)
-        access = Map.get(info, :access)
-        permissions = format_permissions(type, access)
-        Enum.join([permissions, links, uid, gid, size, timestamp, name], " ")
+        case File.stat(file) do
+            {:ok, info} ->
+                size = Map.get(info, :size)
+                {{_y, m, d}, {h, min, _s}} = Map.get(info, :mtime)
+                time = Enum.join([h, min], ":")
+                m = format_month(m)
+                timestamp = Enum.join([m, d, time], " ")
+                links = Map.get(info, :links)
+                uid = Map.get(info, :uid)
+                gid = Map.get(info, :gid)
+                type = Map.get(info, :type)
+                access = Map.get(info, :access)
+                permissions = format_permissions(type, access)
+                Enum.join([permissions, links, uid, gid, size, timestamp, name], " ")
+            {:error, _reason} ->  ":error "
+        end
     end
 
 
@@ -914,27 +930,31 @@ defmodule FtpServer do
     @doc """
     Function to perform the authenication at the beginning of a connection
     """
-    def auth() do
-        expected_username = get(:username)
-        expected_password = get(:password)
+    def auth(server_name) do
         data = receive do
             {:tcp, _socket, data} -> data
           end
-        logger_debug "Username Given: #{inspect data}"
-        "USER " <> username = to_string(data) |> String.trim()
+        cond do
+            String.contains?(data, "USER") == true ->
+                logger_debug "Username Given: #{inspect data}"
+                "USER " <> username = to_string(data) |> String.trim()
 
-        send_message(@ftp_GIVEPWORD,"Enter Password")
-        
-        data = receive do
-            {:tcp, _socket, data} -> data
-          end
-        logger_debug "Password Given: #{inspect data}"
-        "PASS " <> password = to_string(data) |> String.trim()
+                send_message(@ftp_GIVEPWORD,"Enter Password")
+                
+                data = receive do
+                    {:tcp, _socket, data} -> data
+                end
+                logger_debug "Password Given: #{inspect data}"
+                "PASS " <> password = to_string(data) |> String.trim()
 
-        valid_credentials = valid_username(expected_username, username) + valid_password(expected_password, password)
-        case valid_credentials do
-            0 -> true
-            _ -> false
+                ftp_auth_name = Enum.join([server_name, "_ftp_auth"]) |> String.to_atom()
+                FtpAuth.authenticate(ftp_auth_name, username, password)
+            String.contains?(data, "OPTS") == true ->
+                {return_code, message} = handle_opts(data)
+                send_message(return_code, message)
+                auth(server_name)
+            true ->
+                auth(server_name)
         end
     end
 
@@ -1059,7 +1079,52 @@ defmodule FtpServer do
         end  
     end
 
-    ## Functions for functions FtpData by sending kernel messages.
+    defp ip_tuple_to_string(ip) do
+       {h1, h2, h3, h4} = ip
+       Enum.join([to_string(h1), to_string(h2), to_string(h3), to_string(h4)], ".")
+    end
+
+    @doc """
+    Function to get passive socket port number. Port number is generated
+    by getting 2 random numbers, p1 and p2, and running the following calculation
+    on them (as per RFC):
+        port_number = p1*256 + p2
+    The function then checks if the port is available for use. If it's not, it looks
+    for another port untils it finds one that is available. When it finds one,
+    it returns the port number, p1 and p2, all as as type `Integer` in a tuple.
+    """
+    def get_pasv_port() do
+        p1 = :rand.uniform(230)
+        p2 = :rand.uniform(230)
+        port_number = p1*256 + p2
+        if port_number < 1024 or !port_available?(port_number) do
+            logger_debug "still trying to get random no..."
+            get_pasv_port()
+        else
+            {port_number, p1, p2}
+        end
+    end
+
+    @doc """
+    Function to check if `port` is available.
+    """
+    def port_available?(port) do
+        ip = get(:control_ip)
+        case :gen_tcp.listen(port, [ip: ip]) do
+            {:ok, socket} ->
+                logger_debug "Port #{inspect port} is available"
+                :gen_tcp.close(socket)
+                true
+            {:error, :eaddrinuse} ->
+                logger_debug "Port #{inspect port} is not available because it's in use"
+                false
+            {:error, other_reason} ->
+                logger_debug "Port #{inspect port} is not available. Reason #{other_reason}"
+                false                
+        end
+    end
+
+    ## Functions for messaging FtpData by sending kernel messages.
     ## These are necessary because sometimes the FtpPasvSocket GenServer
     ## does not start in time before commands get sent to it. Sending messages
     ## to the handle_info callbacks allows us to call those functions in the FtpData
@@ -1091,6 +1156,6 @@ defmodule FtpServer do
     end
 
     def pasv(ip, port) do
-        get(:ftp_data_pid) |> Kernel.send({:pasv, ip, port})
+        get(:ftp_data_pid) |> GenServer.call({:pasv, ip, port})
     end
 end
